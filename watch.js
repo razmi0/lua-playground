@@ -112,7 +112,7 @@ function restartServer() {
     log("Attempting to restart target script...");
     stopServer();
     console.log("\x1B[2J\x1B[0f");
-    setTimeout(startServer, 50); // Small delay
+    setTimeout(startServer, 20); // Small delay
 }
 
 function handleFileChange(event, filePath) {
