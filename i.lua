@@ -186,8 +186,8 @@ local trie = Trie.new()
 
 local handler_trie, mw_set, hdls_set = trie()
 
-trie:prepare()
-print(inspect(handler_trie))
+trie:attachMiddlewares()
+-- print(inspect(handler_trie))
 -- print("\n")
 -- print(inspect(mw_set))
 -- print("\n")
