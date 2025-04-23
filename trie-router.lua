@@ -67,7 +67,7 @@ local compare = function(mwPath, handlerPath)
     local replaceOpt = function(str)
         -- rm the third group ( optionnal )
         local dynamic, label, _, pattern = string.match(str, PATTERN_GROUPS.complete)
-        return dynamic .. label .. pattern
+        return dynamic .. (label or "") .. pattern
     end
 
     for i = 1, #mwParts, 1 do
@@ -230,12 +230,15 @@ function Trie:attachMiddlewares()
     print(inspect(mws))
     print("-----hds")
     print(inspect(hds))
+    print("-----")
     for scored_indexed, mwNode in pairs(mws) do
         -- minimum score to receive a middleware
         print("studiying the mw number : " .. tostring(scored_indexed))
         local i = scored_indexed
         while true do
             i = i + 1
+
+            print("now looking for hdl number : " .. tostring(i))
             -- potential target
             local handlerNode = hds[i]
             local continue = mws[i]
@@ -244,16 +247,18 @@ function Trie:attachMiddlewares()
             -- score handlers and score middleware make a linear (1,2, n .. n + 1) together
             -- if no handlerset AND no mw stored, gap in the linear sequence => all exploration of callbacks done
             local stop = not handlerNode and not continue
-            print(stop)
+            print("stop .. " .. tostring(stop))
             if stop then break end
 
             -- everything is available
             if handlerNode then
                 -- method comparison not implemented
                 local isCompatible = compare(mwNode.path, handlerNode.path)
+                print(mwNode.path .. " and " .. handlerNode.path .. " are " .. tostring(isCompatible))
                 if isCompatible then
-                    local middlewares = mwNode.middlewares
-                    local handlers = handlerNode.handlers
+                    local middlewares = mwNode.middlewares[1]
+                    local handlers = handlerNode.handlers[1]
+                    print(inspect(handlers))
                     -- mw are inserted before first handler
                     local insertedIdx = 1
                     for _, mw in ipairs(middlewares) do
@@ -339,55 +344,57 @@ end
 
 local routes = {
     USE = {
-        "/static/*",
+        "*",
     },
     GET = {
-        -- "/users/:new{%a+}",
-        -- "/items/:id{%d+}",
-        -- "/items/:slug",
-        -- "/products/:category?",
-        -- "/articles/:page?{%d+}",
-        -- "/search/:query?/results",
-        -- "/config/:type?/:key?",
-        -- "/files/*",
-        -- "/",
-        -- "/data",
-        -- "/data/:key",
-        -- "/lookup/:id",
-        -- "/static/:path",
-        -- "/static/:path/*",
-        "/static/path"
+        "/users/:new{%a+}",
+        "/items/:id{%d+}",
+        "/items/:slug",
+        "/products/:category?",
+        "/articles/:page?{%d+}",
+        "/search/:query?/results",
+        "/config/:type?/:key?",
+        "/files/*",
+        "/",
+        "/data",
+        "/data/:key",
+        "/lookup/:id",
+        "/x/:path",
+        "/x/:path/*",
+        "/x/path"
     },
 }
 
 local requested_routes = {
     GET = {
-        -- "/users/popo",
-        -- "/users/123",
-        -- "/items/456",
-        -- "/items/my-item",
-        -- "/items/invalid",
-        -- "/items/Invalid-Item",
-        -- "/products/electronics",
-        -- "/products",
-        -- "/products/",
-        -- "/articles/5",
-        -- "/articles",
-        -- "/articles/abc",
-        -- "/search/lua-trie/results",
-        -- "/search/results",
-        -- "/config/user/theme",
-        -- "/config/user",
-        -- "/config",
-        -- "/files/css/style.css",
-        -- "/files/index.html",
-        -- "/files/",
-        -- "/files",
-        -- "/",
-        -- "/data",
-        -- "/data/with%20space",
-        -- "/lookup/a%2Fb",
-        "/static/path",
+        "/users/popo",
+        "/users/123",
+        "/items/456",
+        "/items/my-item",
+        "/items/invalid",
+        "/items/Invalid-Item",
+        "/products/electronics",
+        "/products",
+        "/products/",
+        "/articles/5",
+        "/articles",
+        "/articles/abc",
+        "/search/lua-trie/results",
+        "/search/results",
+        "/config/user/theme",
+        "/config/user",
+        "/config",
+        "/files/css/style.css",
+        "/files/index.html",
+        "/files/",
+        "/files",
+        "/",
+        "/data",
+        "/data/with%20space",
+        "/lookup/a%2Fb",
+        "/x",
+        "/x/path",
+        "/x/path/to",
 
     },
     POST = {
@@ -400,16 +407,16 @@ local requested_routes = {
 }
 
 local trie = Trie.new()
--- for method, paths in pairs(routes) do
---     for i, path in ipairs(paths) do
---         trie:insert(method, path, { function() return "FN " .. i end })
---     end
--- end
+for method, paths in pairs(routes) do
+    for i, path in ipairs(paths) do
+        trie:insert(method, path, { function() return "FN " .. i end })
+    end
+end
 
-trie:insert("USE", "/x/*", { function() return "MW " .. "1" end })
-trie:insert("GET", "/x/path", { function() return "FN " .. "2" end })
--- print(inspect(trie()))
-trie:insert("GET", "/x/path/to", { function() return "FN " .. "2" end })
+-- trie:insert("USE", "/x/*", { function() return "MW " .. "1" end })
+-- trie:insert("GET", "/x/path", { function() return "FN " .. "2" end })
+-- -- print(inspect(trie()))
+-- trie:insert("GET", "/x/path/to", { function() return "FN " .. "2" end })
 -- trie:insert("GET", "/static/path/to/yes", { function() return "FN " .. "2" end })
 
 local results = {}
@@ -434,4 +441,4 @@ for method, paths in pairs(requested_routes) do
 end
 
 print("---handlers")
-print(inspect(#results[1].result.handlerResult))
+print(inspect(results))
