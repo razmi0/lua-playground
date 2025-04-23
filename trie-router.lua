@@ -1,93 +1,53 @@
+--- A Trie (prefix tree) based router implementation for handling HTTP-like routes.
+-- Supports static paths, dynamic segments with optional patterns (:param),
+-- optional segments (:param?), wildcards (*), and middleware attachment.
+
+---@alias Method "GET" | "ALL" | "POST" | "USE" | "PATCH" | "HEAD" | "PUT"
+---@alias Path string
+---@alias Handler fun(): any
+---@alias Middleware fun():any
+---@alias MatchResult Handler[] | Middleware[]
+
+---@class Trie
+---@field value table
+---@field score number
+---@field mwSet table
+---@field hdlSet table
+---@field isMwPopulated boolean
+---@field new fun(self : Trie): self
+---@field insert fun(self : Trie, method : Method, path : Path, handlers : Handler[]): self
+---@field search fun(self : Trie, method : Method, path : Path)
+
 local inspect = require("inspect")
 local parse = require("utils.parse-path")
 local PATTERN_GROUPS = require("utils.patterns")
 local split = require("utils.split-path")
 
+local score = 0
+local mws = {}
+local hds = {}
+local isMwPopulated = false
 
 local Trie = {}
 Trie.__index = Trie
 
+--- Trie Router
+---@contructor
+---@return Trie
 function Trie.new()
     return setmetatable({
         value = {},
-        score = 0,
-        mwSet = {},  -- used for middleware registration
-        hdlSet = {}, -- used for middleware registration
-        isMwPopulated = false
     }, Trie)
 end
 
+---@private
 function Trie:__call()
-    return self.value, self.mwSet, self.hdlSet
+    return self.value
 end
 
-function Trie:getScore()
-    self.score = self.score + 1
-    return self.score
-end
-
-function Trie:insert(method, path, ...)
-    local handlers = { ... }
-    if method == "USE" then
-        self.mwSet[self:getScore()] = {
-            path = path,
-            middlewares = handlers,
-        }
-        return self
-    end
-
-    local parts = split(path)
-    print(inspect(parts))
-    local currentNode = self.value
-    if not currentNode then
-        self.value = {}
-        currentNode = self.value
-    end
-
-    local params = {}
-    for i, part in ipairs(parts) do
-        local segment, segmentType, partData = parse(part)
-        -- create new empty node
-        if not currentNode[segment] then
-            currentNode[segment] = {}
-        end
-        --
-        -- dynamic or static segment
-        if partData then
-            if segmentType == "dynamic" then
-                table.insert(params, segment:match(PATTERN_GROUPS.label))
-                currentNode[segment].pattern = partData.pattern
-            end
-            if not currentNode[segment].optionnal then              -- later route declaration does not override
-                currentNode[segment].optionnal = partData.optionnal -- static can be optional too
-            end
-        end
-        --
-        -- focus next node
-        currentNode = currentNode[segment]
-        --
-        -- the end
-        if i == #parts then
-            if not currentNode[method] then
-                local score = self:getScore()
-                currentNode[method] = {
-                    handlers = handlers, -- main handler
-                    score = score,       -- create tracker counter
-                    possibleKeys = params,
-                    path = path,
-                    method = method
-                }
-                self.hdlSet[score] = currentNode[method]
-            else
-                for _, handler in ipairs(handlers) do
-                    table.insert(currentNode[method].handlers, 1, handler)
-                end
-            end
-        end
-        --
-    end
-
-    return self
+local getScore = function()
+    score = score + 1
+    return score
 end
 
 local compare = function(mwPath, handlerPath)
@@ -119,18 +79,77 @@ local compare = function(mwPath, handlerPath)
     return true
 end
 
+function Trie:insert(method, path, ...)
+    local handlers = ...
+    if method == "USE" then
+        mws[getScore()] = {
+            path = path,
+            middlewares = handlers,
+        }
+        return self
+    end
+
+    local parts = split(path)
+    local currentNode = self.value
+    if not currentNode then
+        self.value = {}
+        currentNode = self.value
+    end
+
+    local params = {}
+    for i, part in ipairs(parts) do
+        local segment, segmentType, partData = parse(part)
+        -- create new empty node
+        if not currentNode[segment] then
+            currentNode[segment] = {}
+        end
+        --
+        -- dynamic or static segment
+        if partData then
+            if segmentType == "dynamic" then
+                table.insert(params, segment:match(PATTERN_GROUPS.label))
+            end
+        end
+        --
+        -- focus next node
+        currentNode = currentNode[segment]
+        --
+        -- the end
+        if i == #parts then
+            if not currentNode[method] then
+                local new_score = getScore()
+                currentNode[method] = {
+                    handlers = handlers, -- main handler
+                    score = new_score,   -- create tracker counter
+                    possibleKeys = params,
+                    path = path,
+                    method = method
+                }
+                hds[score] = currentNode[method]
+            else
+                for _, handler in ipairs(handlers) do
+                    table.insert(currentNode[method].handlers, 1, handler)
+                end
+            end
+        end
+        --
+    end
+
+    return self
+end
+
 function Trie:attachMiddlewares()
     -- mw are added if :
     -- the path match (with dynamic, pattern and wildcard but not optionnal)
     -- the score of the concrete route > score of mw
-    for score, mwNode in pairs(self.mwSet) do
+    for scored_indexed, mwNode in pairs(mws) do
         -- minimum score to receive a middleware
-        local i = score
+        local i = scored_indexed
         while true do
             i = i + 1
             -- potential target
-            local handlerNode = self.hdlSet[i]
-            local continue = self.mwSet[i]
+            local handlerNode = hds[i]
+            local continue = mws[i]
             -- score handlers and score middleware make a linear (1,2, n .. n + 1) together
             -- if no handlerset AND no mw stored, gap in the linear sequence => all exploration of callbacks done
             local stop = not handlerNode and not continue
@@ -153,18 +172,19 @@ function Trie:attachMiddlewares()
             end
         end
     end
-    self.mwSet = nil
+    mws = nil
+    hds = nil
 end
 
 function Trie:search(method, path)
-    if not self.isMwPopulated then
+    if not isMwPopulated then
         self:attachMiddlewares()
-        self.isMwPopulated = true
+        isMwPopulated = true
     end
 
     local parts = split(path)
-    local node = self.value -- Assuming self.value is the root node of the Trie
-    local accValues = {}    -- Accumulate parameter values IN ORDER
+    local node = self.value -- root
+    local accValues = {}    -- accumulate parameter values IN ORDER
     local numParts = #parts
 
     local function traverse(currentNode, partIdx)
@@ -188,7 +208,6 @@ function Trie:search(method, path)
                         pushedParam = true
                     end
                     local handlers, params = traverse(childNode, partIdx)
-
                     if handlers then
                         return handlers, params
                     end
@@ -266,7 +285,7 @@ function Trie:search(method, path)
                 end
             end
 
-            -- 3. Check for optional segments that can be skipped (new code)
+            -- 3. Check for optional segments that can be skipped
             for stored_path, childNode in pairs(currentNode) do
                 local original_key, segmentType, data = parse(stored_path)
                 if data and data.optionnal then
@@ -298,89 +317,90 @@ local trie = Trie.new()
 
 local routes = {
     GET = {
-        -- "/users/new",
-        -- "/users/:id",
-        -- "/items/:id{%d+}",
-        -- "/items/:slug{%a+}",
-        -- "/products/:category?",
-        -- "/articles/:page?{%d+}",
-        -- "/search/:query?/results",
-        -- "/config/:type?/:key?",
-        -- "/files/*",
+        "/users/:new{%d+}",
+        "/users/:id",
+        "/items/:id{%d+}",
+        "/items/:slug{%a+}",
+        "/products/:category?",
+        "/articles/:page?{%d+}",
+        "/search/:query?/results",
+        "/config/:type?/:key?",
+        "/files/*",
         "/",
-        -- "/data",
-        -- "/data/:key",
-        -- "/lookup/:id",
-        -- "/middleware"
+        "/data",
+        "/data/:key",
+        "/lookup/:id",
+        "/middleware"
     },
     POST = {
-        -- "/api/v1/:resource/:id{%d+}/:action?"
+        "/api/v1/:resource/:id{%d+}/:action?"
     },
 }
 
 local requested_routes = {
     GET = {
-        -- "/users/new",
-        -- "/users/123",
-        -- "/items/456",
-        -- "/items/my-item",
-        -- "/items/invalid",      --Should not match any pattern
-        -- "/items/Invalid-Item", -- Should not match any pattern
-        -- "/products/electronics",
-        -- "/products",
-        -- "/products/",
-        -- "/articles/5",
-        -- "/articles",
-        -- "/articles/abc", -- Should not match pattern
-        -- "/search/lua-trie/results",
-        -- "/search/results",
-        -- "/config/user/theme",
-        -- "/config/user",
-        -- "/config",
-        -- "/files/css/style.css",
-        -- "/files/index.html",
-        -- "/files/",
-        -- "/files",
+        "/users/new",
+        "/users/123",
+        "/items/456",
+        "/items/my-item",
+        "/items/invalid",
+        "/items/Invalid-Item",
+        "/products/electronics",
+        "/products",
+        "/products/",
+        "/articles/5",
+        "/articles",
+        "/articles/abc",
+        "/search/lua-trie/results",
+        "/search/results",
+        "/config/user/theme",
+        "/config/user",
+        "/config",
+        "/files/css/style.css",
+        "/files/index.html",
+        "/files/",
+        "/files",
         "/",
-        -- "/data",
-        -- "/data/with%20space",
-        -- "/lookup/a%2Fb",
-        -- "/middleware"
+        "/data",
+        "/data/with%20space",
+        "/lookup/a%2Fb",
+        "/middleware"
     },
     POST = {
         -- "/api/v1/posts/123/publish",
         -- "/api/v1/users/456",
-        -- "/api/v1/tags/abc",             -- Should not match id pattern
-        -- "/api/v1/posts/123",            --Method mismatch (will be tested on your side)
-        -- "/api/v1/posts/123/publish/now" --Too many segments
+        -- "/api/v1/tags/abc",
+        -- "/api/v1/posts/123",
+        -- "/api/v1/posts/123/publish/now"
     }
 }
 
 
 local results = {
-    POST = {},
-    GET = {}
 }
 for method, paths in pairs(routes) do
     for i, path in ipairs(paths) do
-        trie:insert(method, path, function() return "FN " .. i end)
+        trie:insert(method, path, { function() return "FN " .. i end, function() return "FN " .. i + 1 end })
     end
 end
 
 
+-- local v = trie()
+
+-- print(inspect(v))
 
 for method, paths in pairs(requested_routes) do
     for i, path in ipairs(paths) do
         local handlers, params = trie:search(method, path)
-        table.insert(results[method], {
+        local r = (handlers and handlers[1]()) or "NOT-FOUND"
+        table.insert(results, {
             path = path,
             result = {
-                handlerResult = (handlers and handlers[1]()) or "NOT-FOUND",
+                handlerResult = r,
                 params = params
             }
         })
     end
 end
 
-local structure = trie()
-print(inspect(structure))
+print(inspect(results))
