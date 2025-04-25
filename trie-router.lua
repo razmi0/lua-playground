@@ -1,3 +1,8 @@
+-- pb :
+-------middleware attach lot of times on optional routes
+-------wildcard get.* and "/" conflict
+
+
 --- A Trie (prefix tree) based router implementation for handling HTTP-like routes.
 -- Supports static paths, dynamic segments with optional patterns (:param),
 -- optional segments (:param?), wildcards (*), and middleware attachment.
@@ -8,19 +13,9 @@
 ---@alias Middleware fun():any
 ---@alias MatchResult Handler[] | Middleware[]
 
----@class Trie
----@field value table
----@field score number
----@field mwSet table
----@field hdlSet table
----@field isMwPopulated boolean
----@field new fun(self : Trie): self
----@field insert fun(self : Trie, method : Method, path : Path, handlers : Handler[]): self
----@field search fun(self : Trie, method : Method, path : Path)
-
 local inspect = require("inspect")
 local parse = require("utils.parse-path")
-local PATTERN_GROUPS = require("utils.patterns")
+-- local PATTERN_GROUPS = require("utils.patterns")
 local split = require("utils.split-path")
 
 local score = 0
@@ -64,24 +59,15 @@ local compare = function(mwPath, handlerPath)
     local mwParts = split(mwPath)
     local hdlParts = split(handlerPath)
 
-    local replaceOpt = function(str)
-        -- rm the third group ( optionnal )
-        local dynamic, label, _, pattern = string.match(str, PATTERN_GROUPS.complete)
-        return dynamic .. (label or "") .. pattern
-    end
-
     for i = 1, #mwParts, 1 do
         if not hdlParts[i] then
             return false
         end
         -- can be optionnal and share all except last char"?"
-        local hdlSeg = replaceOpt(hdlParts[i])
-        local mwSeg = replaceOpt(mwParts[i])
-        -- "*?"
-        if mwSeg == "*" then
+        if mwParts[i] == "*" then
             goto continue
         end
-        if mwSeg ~= hdlSeg then
+        if mwParts[i] ~= hdlParts[i] then
             return false
         end
         ::continue::
@@ -113,44 +99,38 @@ local function cleanup(obj)
     Traverse(obj)
 end
 
-function DeepCopy(orig)
-    local orig_type = type(orig)
-    local copy
-    if orig_type == 'table' then
-        copy = {}
-        for orig_key, orig_value in next, orig, nil do
-            copy[DeepCopy(orig_key)] = DeepCopy(orig_value)
-        end
-        setmetatable(copy, DeepCopy(getmetatable(orig)))
-    else -- number, string, boolean, etc
-        copy = orig
-    end
+local function plainCopy(t)
+    local copy = {}
+    for i = 1, #t do copy[i] = t[i] end
     return copy
 end
 
--- Recursively expand any “optional” part into two paths:
-local function expandOptionals(parts, i, acc, out)
+local function expandOptionals(parts, i, acc, out, skippedOptional)
     if i > #parts then
-        table.insert(out, DeepCopy(acc))
+        table.insert(out, plainCopy(acc))
         return
     end
 
     local p = parts[i]
-    if p:match("?") then
-        -- strip the “?” and recurse both with and without
+    local isOptional = p:match("?")
+
+    if isOptional then
         local base = string.gsub(p, "?", "")
-        -- without
-        expandOptionals(parts, i + 1, acc, out)
-        -- with
-        table.insert(acc, base)
-        expandOptionals(parts, i + 1, acc, out)
-        table.remove(acc)
+        if not skippedOptional then
+            -- include optional
+            table.insert(acc, base)
+            expandOptionals(parts, i + 1, acc, out, false)
+            table.remove(acc)
+        end
+        -- skip optional
+        expandOptionals(parts, i + 1, acc, out, true)
     else
         table.insert(acc, p)
-        expandOptionals(parts, i + 1, acc, out)
+        expandOptionals(parts, i + 1, acc, out, skippedOptional)
         table.remove(acc)
     end
 end
+
 
 function Trie:insert(method, raw_path, ...)
     local handlers = { ... }
@@ -171,19 +151,17 @@ function Trie:insert(method, raw_path, ...)
         local node = self.root or newNode()
         self.root = node
         local paramNames = {}
-        for _, part in ipairs(parts) do
+        for idx, part in ipairs(parts) do
             local seg, typ, data, label = parse(part)
-            -- print(inspect(node))
             if typ == "static" then
                 node.static[seg] = node.static[seg] or newNode()
                 node = node.static[seg]
             elseif typ == "dynamic" then
-                -- store both the node and its name+pattern
                 local child = newNode()
                 table.insert(node.dynamic, {
-                    node    = child,
-                    name    = label,
-                    pattern = data.pattern
+                    node       = child,
+                    pattern    = data.pattern,
+                    branchSize = #parts - idx,
                 })
                 node = child
                 table.insert(paramNames, label)
@@ -205,7 +183,7 @@ function Trie:insert(method, raw_path, ...)
                 handlers     = handlers,
                 score        = s,
                 possibleKeys = paramNames,
-                path         = raw_path,
+                path         = table.concat(parts, "/"), -- without opt
                 method       = method
             }
             node[method] = rec
@@ -218,7 +196,7 @@ function Trie:insert(method, raw_path, ...)
         end
     end
 
-    -- cleanup(self.root)
+
     return self
 end
 
@@ -226,66 +204,61 @@ function Trie:attachMiddlewares()
     -- mw are added if :
     -- the path match (with dynamic, pattern and wildcard but not optionnal)
     -- the score of the concrete route > score of mw
-    print("-----mws")
-    print(inspect(mws))
-    print("-----hds")
-    print(inspect(hds))
-    print("-----")
+    -- print("-----MIDDLEWARES-----")
+    -- print(inspect(mws))
+    -- print("-----HANDLERS-----")
+    -- print(inspect(hds))
     for scored_indexed, mwNode in pairs(mws) do
         -- minimum score to receive a middleware
-        print("studiying the mw number : " .. tostring(scored_indexed))
         local i = scored_indexed
         while true do
             i = i + 1
-
-            print("now looking for hdl number : " .. tostring(i))
             -- potential target
             local handlerNode = hds[i]
             local continue = mws[i]
-            print("handlerNode is : " .. tostring(handlerNode))
-            print("continue is : " .. tostring(continue))
             -- score handlers and score middleware make a linear (1,2, n .. n + 1) together
             -- if no handlerset AND no mw stored, gap in the linear sequence => all exploration of callbacks done
             local stop = not handlerNode and not continue
-            print("stop .. " .. tostring(stop))
             if stop then break end
 
             -- everything is available
             if handlerNode then
                 -- method comparison not implemented
                 local isCompatible = compare(mwNode.path, handlerNode.path)
-                print(mwNode.path .. " and " .. handlerNode.path .. " are " .. tostring(isCompatible))
                 if isCompatible then
-                    local middlewares = mwNode.middlewares[1]
-                    local handlers = handlerNode.handlers[1]
-                    print(inspect(handlers))
+                    local middlewares = mwNode.middlewares
+                    local handlers = handlerNode.handlers
                     -- mw are inserted before first handler
                     local insertedIdx = 1
                     for _, mw in ipairs(middlewares) do
                         table.insert(handlers, insertedIdx, mw)
                         insertedIdx = insertedIdx + 1
                     end
+                    -- print(inspect(handlers))
                 end
             end
         end
     end
+    cleanup(self.root)
     mws = nil
     hds = nil
 end
 
 function Trie:search(method, path)
+    print("------- " .. path)
     if not isMwPopulated then
         self:attachMiddlewares()
+        isMwPopulated = true
     end
-    isMwPopulated = true
-    local parts   = split(path)
-    local node    = self.root
+    local parts = split(path)
+    local node  = self.root
     if not node then
         return nil, nil
     end
 
     local values = {} -- capture dynamic & wildcard values in order
     local i, n   = 1, #parts
+
 
     while i <= n do
         local part = parts[i]
@@ -299,16 +272,28 @@ function Trie:search(method, path)
 
             -- 2) try each dynamic child
             if node.dynamic then
+                local remain = n - i -- how many segments we still have
+                local bestDyn        -- we'll pick the dyn needing the most segments
                 for _, dyn in ipairs(node.dynamic) do
-                    -- if no pattern or pattern matches
-                    if (not dyn.pattern) or part:match(dyn.pattern) then
-                        table.insert(values, part)
-                        node = dyn.node
-                        matched = true
-                        break
+                    print("remain : " .. remain, "dyn.branchSize : " .. dyn.branchSize)
+                    if remain >= (dyn.branchSize or 0)
+                        and (not dyn.pattern or part:match(dyn.pattern))
+                    then
+                        if not bestDyn
+                            or (dyn.branchSize or 0) > (bestDyn.branchSize or 0)
+                        then
+                            bestDyn = dyn
+                        end
                     end
                 end
+                if bestDyn then
+                    table.insert(values, part)
+                    node    = bestDyn.node
+                    matched = true
+                end
             end
+
+            -- print(part, "matches : " .. tostring(matched))
 
             if matched then
                 i = i + 1
@@ -342,103 +327,4 @@ function Trie:search(method, path)
     return rec.handlers[1], params
 end
 
-local routes = {
-    USE = {
-        "*",
-    },
-    GET = {
-        "/users/:new{%a+}",
-        "/items/:id{%d+}",
-        "/items/:slug",
-        "/products/:category?",
-        "/articles/:page?{%d+}",
-        "/search/:query?/results",
-        "/config/:type?/:key?",
-        "/files/*",
-        "/",
-        "/data",
-        "/data/:key",
-        "/lookup/:id",
-        "/x/:path",
-        "/x/:path/*",
-        "/x/path"
-    },
-}
-
-local requested_routes = {
-    GET = {
-        "/users/popo",
-        "/users/123",
-        "/items/456",
-        "/items/my-item",
-        "/items/invalid",
-        "/items/Invalid-Item",
-        "/products/electronics",
-        "/products",
-        "/products/",
-        "/articles/5",
-        "/articles",
-        "/articles/abc",
-        "/search/lua-trie/results",
-        "/search/results",
-        "/config/user/theme",
-        "/config/user",
-        "/config",
-        "/files/css/style.css",
-        "/files/index.html",
-        "/files/",
-        "/files",
-        "/",
-        "/data",
-        "/data/with%20space",
-        "/lookup/a%2Fb",
-        "/x",
-        "/x/path",
-        "/x/path/to",
-
-    },
-    POST = {
-        -- "/api/v1/posts/123/publish",
-        -- "/api/v1/users/456",
-        -- "/api/v1/tags/abc",
-        -- "/api/v1/posts/123",
-        -- "/api/v1/posts/123/publish/now"
-    }
-}
-
-local trie = Trie.new()
-for method, paths in pairs(routes) do
-    for i, path in ipairs(paths) do
-        trie:insert(method, path, { function() return "FN " .. i end })
-    end
-end
-
--- trie:insert("USE", "/x/*", { function() return "MW " .. "1" end })
--- trie:insert("GET", "/x/path", { function() return "FN " .. "2" end })
--- -- print(inspect(trie()))
--- trie:insert("GET", "/x/path/to", { function() return "FN " .. "2" end })
--- trie:insert("GET", "/static/path/to/yes", { function() return "FN " .. "2" end })
-
-local results = {}
-for method, paths in pairs(requested_routes) do
-    for i, path in ipairs(paths) do
-        local handlers, params = trie:search(method, path)
-        local hres = {}
-        if handlers then
-            for j, h in ipairs(handlers) do
-                table.insert(hres, h())
-            end
-        end
-        local r = (next(hres) ~= nil and hres) or "NOT-FOUND"
-        table.insert(results, {
-            path = path,
-            result = {
-                handlerResult = r,
-                params = params
-            }
-        })
-    end
-end
-
-print("---handlers")
-print(inspect(results))
+return Trie
