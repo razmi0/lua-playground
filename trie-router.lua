@@ -78,7 +78,7 @@ local compare = function(mwPath, handlerPath)
     return true
 end
 
-local function cleanup(obj)
+local cleanup = function(obj)
     local isNode = function(x)
         return
             type(x) ~= "number" and
@@ -102,7 +102,7 @@ local function cleanup(obj)
     Traverse(obj)
 end
 
-local function plainCopy(t)
+local plainCopy = function(t)
     local copy = {}
     for i = 1, #t do copy[i] = t[i] end
     return copy
@@ -242,13 +242,12 @@ function Trie:attachMiddlewares()
             end
         end
     end
-    cleanup(self.root)
+    -- cleanup(self.root)
     mws = nil
     hds = nil
 end
 
 function Trie:search(method, path)
-    print(method, path)
     if not isMwPopulated then
         self:attachMiddlewares()
         isMwPopulated = true
