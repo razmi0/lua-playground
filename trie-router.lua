@@ -13,7 +13,7 @@
 ---@alias MatchResult Handler[] | Middleware[]
 
 ---@class Trie
----@field insert fun(self : Trie, method : Method, path : Path, handlers : Handler)
+---@field insert fun(self : Trie, method : Method, path : Path, ... : Handler)
 ---@field search fun(self : Trie, method : Method, path : Path)
 
 local inspect = require("inspect")
@@ -58,9 +58,15 @@ local getScore = function()
     return score
 end
 
-local compare = function(mwPath, handlerPath)
-    local mwParts = split(mwPath)
-    local hdlParts = split(handlerPath)
+local compare = function(mw, handler)
+    local mwParts = split(mw.path)
+    local hdlParts = split(handler.path)
+
+    if mw.method ~= "USE" then
+        if mw.method ~= handler.method then
+            return false
+        end
+    end
 
     for i = 1, #mwParts, 1 do
         if not hdlParts[i] then
@@ -138,7 +144,7 @@ end
 function Trie:insert(method, raw_path, ...)
     local handlers = { ... }
     if method == "USE" then
-        mws[getScore()] = { path = raw_path, middlewares = handlers }
+        mws[getScore()] = { path = raw_path, middlewares = handlers, method = "USE" }
         return self
     end
 
@@ -182,6 +188,7 @@ function Trie:insert(method, raw_path, ...)
         local rec = node[method]
         if not rec then
             local s = getScore()
+            -- print(handlers[#handlers]())
             rec = {
                 handlers     = handlers,
                 score        = s,
@@ -192,10 +199,17 @@ function Trie:insert(method, raw_path, ...)
             node[method] = rec
             hds[s] = rec
         else
+            -- if rec exist it means, handler is a middleware
+
+
+
+            -- print(#rec.handlers)
+            -- print(handlers[#handlers]())
             -- prepend if already exists
             for _, h in ipairs(handlers) do
-                table.insert(rec.handlers, 1, h)
+                table.insert(rec.handlers, h)
             end
+            -- mws[getScore()] = { path = raw_path, middlewares = handlers, method = method }
         end
     end
 
@@ -227,7 +241,7 @@ function Trie:attachMiddlewares()
             -- everything is available
             if handlerNode then
                 -- method comparison not implemented
-                local isCompatible = compare(mwNode.path, handlerNode.path)
+                local isCompatible = compare(mwNode, handlerNode)
                 if isCompatible then
                     local middlewares = mwNode.middlewares
                     local handlers = handlerNode.handlers

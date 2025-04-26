@@ -2,7 +2,16 @@ local Trie = require("trie-router")
 local inspect = require("inspect")
 local trie = Trie.new()
 
+
+trie:insert("USE", "/q/*", function() return "classic inserted mw" end)
+trie:insert("GET", "/q/1", function() return "method inserted mw" end)
+trie:insert("POST", "/q/1", function()
+    return 'HANDLER 1'
+end)
+
+
 local baseTests = function(middlewares, from, to)
+    print("--base tests--")
     local routes = {
         {
             route = { path = "*", handler = function() return "wildcard" end },
@@ -198,8 +207,19 @@ local baseTests = function(middlewares, from, to)
     if next(results.failed) then
         print("[ERROR] : BASE TEST")
         print(inspect(results.failed))
+    else
+        print("tests ok")
     end
+    print("--")
 end
 
 
 baseTests()
+
+local hs, params = trie:search("POST", "/q/1")
+
+local r = {}
+for _, h in ipairs(hs) do
+    table.insert(r, h(params))
+end
+print(inspect(r))
