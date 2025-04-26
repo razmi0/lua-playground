@@ -69,7 +69,7 @@ local routes = {
 
 local requested_routes = {
     { method = "GET", path = "/",            expectedResult = "Racine" },
-    { method = "GET", path = "/yooo",        expectedResult = "wilcard" },
+    { method = "GET", path = "/yooo",        expectedResult = "wildcard" },
     { method = "GET", path = "/data",        expectedResult = "Données" },
     { method = "GET", path = "/info",        expectedResult = "Informations" },
 

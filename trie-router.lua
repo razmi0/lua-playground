@@ -1,6 +1,5 @@
 -- pb :
 -------middleware attach lot of times on optional routes
--------wildcard get.* and "/" conflict
 
 
 --- A Trie (prefix tree) based router implementation for handling HTTP-like routes.
