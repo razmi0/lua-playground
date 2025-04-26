@@ -1,5 +1,5 @@
 -- pb :
--------middleware attach lot of times on optional routes
+-------middleware all in first dynamic branch
 
 
 --- A Trie (prefix tree) based router implementation for handling HTTP-like routes.
@@ -11,6 +11,10 @@
 ---@alias Handler fun(): any
 ---@alias Middleware fun():any
 ---@alias MatchResult Handler[] | Middleware[]
+
+---@class Trie
+---@field insert fun(self : Trie, method : Method, path : Path, handlers : Handler)
+---@field search fun(self : Trie, method : Method, path : Path)
 
 local inspect = require("inspect")
 local parse = require("utils.parse-path")
@@ -244,7 +248,7 @@ function Trie:attachMiddlewares()
 end
 
 function Trie:search(method, path)
-    print("------- " .. path)
+    print(method, path)
     if not isMwPopulated then
         self:attachMiddlewares()
         isMwPopulated = true
@@ -274,7 +278,6 @@ function Trie:search(method, path)
                 local remain = n - i -- how many segments we still have
                 local bestDyn        -- we'll pick the dyn needing the most segments
                 for _, dyn in ipairs(node.dynamic) do
-                    print("remain : " .. remain, "dyn.branchSize : " .. dyn.branchSize)
                     if remain >= (dyn.branchSize or 0)
                         and (not dyn.pattern or part:match(dyn.pattern))
                     then
@@ -323,7 +326,7 @@ function Trie:search(method, path)
         params[key] = values[idx]
     end
 
-    return rec.handlers[1], params
+    return rec.handlers, params
 end
 
 return Trie
