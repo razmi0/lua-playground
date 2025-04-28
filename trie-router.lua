@@ -1,5 +1,6 @@
 -- pb :
 -------middleware all in first dynamic branch
+--- “two names pointing at the same table” issue
 
 
 --- A Trie (prefix tree) based router implementation for handling HTTP-like routes.
@@ -144,7 +145,8 @@ end
 function Trie:insert(method, raw_path, ...)
     local handlers = { ... }
     if method == "USE" then
-        mws[getScore()] = { path = raw_path, middlewares = handlers, method = "USE" }
+        local s = getScore()
+        mws[s] = { path = raw_path, middlewares = handlers, method = "USE", score = s }
         return self
     end
 
@@ -188,28 +190,24 @@ function Trie:insert(method, raw_path, ...)
         local rec = node[method]
         if not rec then
             local s = getScore()
-            -- print(handlers[#handlers]())
+            if parts[#parts] == "*" then
+                -- need to be added as middleware
+                mws[s] = { path = raw_path, middlewares = handlers, method = method, score = s }
+            end
             rec = {
                 handlers     = handlers,
                 score        = s,
                 possibleKeys = paramNames,
-                path         = table.concat(parts, "/"), -- without opt
+                path         = table.concat(parts, "/"),
                 method       = method
             }
             node[method] = rec
             hds[s] = rec
         else
-            -- if rec exist it means, handler is a middleware
-
-
-
-            -- print(#rec.handlers)
-            -- print(handlers[#handlers]())
-            -- prepend if already exists
+            -- append if already exists
             for _, h in ipairs(handlers) do
                 table.insert(rec.handlers, h)
             end
-            -- mws[getScore()] = { path = raw_path, middlewares = handlers, method = method }
         end
     end
 
@@ -217,14 +215,26 @@ function Trie:insert(method, raw_path, ...)
     return self
 end
 
+-- mw are added if :
+-- the path match (with dynamic, pattern and wildcard but not optionnal)
+-- the score of the concrete route > score of mw
+-- print("-----MIDDLEWARES-----")
+-- print(inspect(mws))
+-- print("-----HANDLERS-----")
+-- print(inspect(hds))
 function Trie:attachMiddlewares()
-    -- mw are added if :
-    -- the path match (with dynamic, pattern and wildcard but not optionnal)
-    -- the score of the concrete route > score of mw
-    -- print("-----MIDDLEWARES-----")
-    -- print(inspect(mws))
-    -- print("-----HANDLERS-----")
-    -- print(inspect(hds))
+    -- a route can be registered as middleware too
+    -- in order to not leak functions between middleware, we copy it
+    -- make sure no mwNode.middlewares table is ever the same as its handlers table
+    for _, mwNode in pairs(mws) do
+        local orig = mwNode.middlewares
+        local copy = {}
+        for i, fn in ipairs(orig) do
+            copy[i] = fn
+        end
+        mwNode.middlewares = copy
+    end
+
     for scored_indexed, mwNode in pairs(mws) do
         -- minimum score to receive a middleware
         local i = scored_indexed
@@ -240,26 +250,43 @@ function Trie:attachMiddlewares()
 
             -- everything is available
             if handlerNode then
-                -- method comparison not implemented
                 local isCompatible = compare(mwNode, handlerNode)
                 if isCompatible then
                     local middlewares = mwNode.middlewares
                     local handlers = handlerNode.handlers
-                    -- mw are inserted before first handler
-                    local insertedIdx = 1
-                    for _, mw in ipairs(middlewares) do
-                        table.insert(handlers, insertedIdx, mw)
-                        insertedIdx = insertedIdx + 1
-                    end
+                    -- print("middlewares will be added from path : " ..
+                    --     mwNode.path .. " and score : " .. tostring(mwNode.score))
+                    -- print(inspect(middlewares))
+                    -- print("to path: " .. handlerNode.path .. " score : " .. tostring(handlerNode.score))
                     -- print(inspect(handlers))
+
+                    -- NEW insertion strategy
+                    local n = #handlers
+                    local handlerFn = handlers[n]
+                    handlers[n] = nil -- remove last
+
+                    for _, mw in ipairs(middlewares) do
+                        table.insert(handlers, mw)
+                    end
+
+                    table.insert(handlers, handlerFn)
                 end
             end
         end
     end
-    -- cleanup(self.root)
+    cleanup(self.root)
     mws = nil
     hds = nil
 end
+
+-- local insertedIdx = 1
+-- for _, mw in ipairs(middlewares) do
+--     table.insert(handlers, insertedIdx, mw)
+--     print("now we have : ")
+--     print(inspect(handlers))
+--     print("\n")
+--     insertedIdx = insertedIdx + 1
+-- end
 
 function Trie:search(method, path)
     if not isMwPopulated then
