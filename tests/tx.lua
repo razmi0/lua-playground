@@ -5,6 +5,8 @@ local fails_count = 0
 local tests_count = 0
 local name = ""
 
+-- Helpers
+
 local function red(str)
     local code = "\27[31m" or "\27[0m"
     return code .. str .. "\27[0m"
@@ -34,6 +36,8 @@ local function deep_contains(container, value)
     end
     return false
 end
+
+-- Lib
 
 function Tx.describe(xname, fn)
     fails_count = 0
@@ -119,7 +123,7 @@ end
 function Tx.throws(fn)
     local ok, _ = pcall(fn)
     if ok then
-        error(c('red', "Expected error to be thrown, but none was"))
+        error(red("Expected error to be thrown, but none was"))
     end
 end
 
