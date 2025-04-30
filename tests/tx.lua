@@ -1,22 +1,23 @@
 local inspect = require("inspect")
 
 local Tx = {}
-
 local fails_count = 0
 local tests_count = 0
 local name = ""
 
-local function c(color, str)
-    local colors = {
-        red = "\27[31m",
-        green = "\27[32m",
-        reset = "\27[0m",
-    }
-    local code = colors[color] or colors.reset
-    return code .. str .. colors.reset
+local function red(str)
+    local code = "\27[31m" or "\27[0m"
+    return code .. str .. "\27[0m"
 end
 
+local function green(str)
+    local code = "\27[32m" or "\27[0m"
+    return code .. str .. "\27[0m"
+end
 
+local function reset(str)
+    return "\27[0m" .. str .. "\27[0m"
+end
 
 local function deep_contains(container, value)
     if type(container) == "string" then
@@ -34,7 +35,6 @@ local function deep_contains(container, value)
     return false
 end
 
-
 function Tx.describe(xname, fn)
     fails_count = 0
     tests_count = 0
@@ -42,9 +42,9 @@ function Tx.describe(xname, fn)
     print("\n" .. name)
     fn()
     if fails_count == 0 then
-        print(c("green", " ok"))
+        print(green(" ok"))
     else
-        print(c("reset", "Failed ") .. c("red", tostring(fails_count)) .. "/" .. tostring(tests_count))
+        print(reset("Failed ") .. red(tostring(fails_count)) .. "/" .. tostring(tests_count))
     end
 end
 
@@ -56,10 +56,10 @@ function Tx.it(msg, func)
     local success, internal_err_msg = pcall(func)
     if not success then
         fails_count = fails_count + 1
-        io.write(c("red", "+ "))
-        print(c("red", "\n" .. msg), c("red", internal_err_msg))
+        io.write(red("+ "))
+        print(red("\n" .. msg), red(internal_err_msg))
     else
-        io.write(c("green", "+"))
+        io.write(green("+"))
     end
     if Tx.afterEach then
         Tx.afterEach()
@@ -94,25 +94,25 @@ function Tx.equal(actual, expected)
     end
 
     if not deep_equal(actual, expected) then
-        error(c("red", inspect(actual) .. " ~= " .. inspect(expected)))
+        error(red(inspect(actual) .. " ~= " .. inspect(expected)))
     end
 end
 
 function Tx.include(container, value)
     if not deep_contains(container, value) then
-        error(c("red", "Did not expect to find " .. tostring(value)))
+        error(red("Did not expect to find " .. tostring(value)))
     end
 end
 
 function Tx.not_include(container, value)
     if deep_contains(container, value) then
-        error(c("red", "Did not expect to find " .. tostring(value)))
+        error(red("Did not expect to find " .. tostring(value)))
     end
 end
 
 function Tx.contain(string_val, substring)
     if not string.find(string_val, substring, 1, true) then
-        error(c("red", ("'" .. string_val .. "' !~ '" .. substring .. "'")))
+        error(red(("'" .. string_val .. "' !~ '" .. substring .. "'")))
     end
 end
 
