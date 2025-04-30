@@ -44,6 +44,10 @@ end
 ---@contructor
 ---@return Trie
 function Trie.new()
+    score = 0
+    mws = {}
+    hds = {}
+    isMwPopulated = false
     return setmetatable({
         root = newNode(),
     }, Trie)
@@ -70,13 +74,14 @@ local compare = function(mw, handler)
     end
 
     for i = 1, #mwParts, 1 do
+        if mwParts[i] == "*" then
+            goto continue
+        end
         if not hdlParts[i] then
             return false
         end
         -- can be optionnal and share all except last char"?"
-        if mwParts[i] == "*" then
-            goto continue
-        end
+
         if mwParts[i] ~= hdlParts[i] then
             return false
         end
