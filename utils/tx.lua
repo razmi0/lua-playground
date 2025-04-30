@@ -48,7 +48,7 @@ function Tx.describe(xname, fn)
     end
 end
 
-function Tx.it(err, func)
+function Tx.it(msg, func)
     if Tx.beforeEach then
         Tx.afterEach()
     end
@@ -57,7 +57,7 @@ function Tx.it(err, func)
     if not success then
         fails_count = fails_count + 1
         io.write(c("red", "+ "))
-        print(c("red", "\n" .. err), c("red", internal_err_msg))
+        print(c("red", "\n" .. msg), c("red", internal_err_msg))
     else
         io.write(c("green", "+"))
     end
