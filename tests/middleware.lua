@@ -2,6 +2,19 @@ local Trie = require("trie-router")
 local Tx = require("tests.tx")
 
 Tx.describe("middlewares", function()
+    Tx.it("should call explicit chained middlewares", function()
+        local trie = Trie.new()
+        local count = 0
+        trie:insert("GET", "/count",
+            function() count = count + 1 end,
+            function() count = count + 2 end,
+            function() count = count + 3 end
+        )
+        local x, _ = trie:search("GET", "/count")
+        for _, fn in ipairs(x) do fn() end
+        Tx.equal(count, 6)
+    end)
+
     Tx.it("should call middleware with wildcard", function()
         local trie = Trie.new()
         local called = false
@@ -46,7 +59,7 @@ Tx.describe("middlewares", function()
 
     Tx.it("should allow method-specific middleware", function()
         local trie = Trie.new()
-        local method_called = false
+        local method_called = nil
         trie:insert("USE", "/x/*", function() method_called = "USE" end)
         trie:insert("POST", "/x/test", function() method_called = "POST" end)
         local x, _ = trie:search("POST", "/x/test")
