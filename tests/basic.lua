@@ -11,6 +11,41 @@ Tx.describe("basics", function()
         Tx.equal(p, {})
     end)
 
+    Tx.it("should insert and search all methods", function()
+        local methods = { "GET", "POST", "PUT", "PATCH", "HEAD", "OPTIONS", "DELETE" }
+        local results = {}
+        local x = {}
+        local trie = Trie.new()
+        for _, m in ipairs(methods) do
+            trie:insert(m, "/hello", function() return m end)
+        end
+        for _, m in ipairs(methods) do
+            local hs, _ = trie:search(m, "/hello")
+            table.insert(x, hs[1])
+        end
+        for _, fn in ipairs(x) do
+            table.insert(results, fn())
+        end
+        Tx.equal(results, methods)
+    end)
+
+    Tx.it("should insert and search all methods via ALL method", function()
+        local methods = { "GET", "POST", "PUT", "PATCH", "HEAD", "OPTIONS", "DELETE" }
+        local expected = { "hello", "hello", "hello", "hello", "hello", "hello", "hello" }
+        local results = {}
+        local x = {}
+        local trie = Trie.new()
+        trie:insert("ALL", "/hello", function() return "hello" end)
+        for _, m in ipairs(methods) do
+            local hs, _ = trie:search(m, "/hello")
+            table.insert(x, hs[1])
+        end
+        for _, fn in ipairs(x) do
+            table.insert(results, fn())
+        end
+        Tx.equal(results, expected)
+    end)
+
     Tx.it("should not match unknown route", function()
         local trie = Trie.new()
         trie:insert("GET", "/known", function() return 1 end)
