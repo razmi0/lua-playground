@@ -10,7 +10,15 @@ function Set:has(key)
 end
 
 function Set:add(key)
-    Set[key] = true
+    if type(key) == "table" then
+        local keys = key
+        for _, k in ipairs(keys) do
+            Set[k] = true
+        end
+    else
+        Set[key] = true
+    end
+    return self
 end
 
 function Set:delete(key)
