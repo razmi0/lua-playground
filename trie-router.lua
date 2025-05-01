@@ -1,11 +1,6 @@
--- pb :
--------middleware all in first dynamic branch
---- “two names pointing at the same table” issue
-
-
 --- A Trie (prefix tree) based router implementation for handling HTTP-like routes.
--- Supports static paths, dynamic segments with optional patterns (:param),
--- optional segments (:param?), wildcards (*), and middleware attachment.
+-- Supports static paths, dynamic optional segments and patterns validation (lua patterns),
+-- wildcards (*), and middleware attachment.
 
 ---@alias Method "GET" | "ALL" | "POST" | "USE" | "PATCH" | "HEAD" | "PUT"
 ---@alias Path string
@@ -19,8 +14,11 @@
 
 local inspect = require("inspect")
 local parse = require("utils.parse-path")
--- local PATTERN_GROUPS = require("utils.patterns")
 local split = require("utils.split-path")
+local plainCopy = require("utils.plain-copy")
+local definitions = require("router-definitions")
+
+
 
 local score = 0
 local mws = {}
@@ -33,37 +31,18 @@ Trie.__index = Trie
 local function newNode()
     return {
         static   = {},  -- map<string, node>
-        dynamic  = {},  -- list of { node = <node>, name = <string>, pattern = <regex?> }
+        dynamic  = {},  -- list of { node = <node>, pattern = <regex?> }
         wildcard = nil, -- { node = <node>, name = <string> } or nil
         handlers = {},  -- map<method, handlerRecord>
     }
 end
 
-
---- Trie Router
----@contructor
----@return Trie
-function Trie.new()
-    score = 0
-    mws = {}
-    hds = {}
-    isMwPopulated = false
-    return setmetatable({
-        root = newNode(),
-    }, Trie)
-end
-
----@private
-function Trie:__call()
-    return self.root
-end
-
-local getScore = function()
+local function getScore()
     score = score + 1
     return score
 end
 
-local compare = function(mw, handler)
+local function compare(mw, handler)
     local mwParts = split(mw.path)
     local hdlParts = split(handler.path)
 
@@ -90,7 +69,7 @@ local compare = function(mw, handler)
     return true
 end
 
-local cleanup = function(obj)
+local function cleanup(obj)
     local isNode = function(x)
         return
             type(x) ~= "number" and
@@ -112,12 +91,6 @@ local cleanup = function(obj)
     end
 
     Traverse(obj)
-end
-
-local plainCopy = function(t)
-    local copy = {}
-    for i = 1, #t do copy[i] = t[i] end
-    return copy
 end
 
 local function expandOptionals(parts, i, acc, out, skippedOptional)
@@ -146,21 +119,43 @@ local function expandOptionals(parts, i, acc, out, skippedOptional)
     end
 end
 
+--- Trie Router
+---@contructor
+---@return Trie
+function Trie.new()
+    score = 0
+    mws = {}
+    hds = {}
+    isMwPopulated = false
+    return setmetatable({
+        root = newNode(),
+    }, Trie)
+end
 
-function Trie:insert(method, raw_path, ...)
+function Trie:insert(method, path, ...)
     local handlers = { ... }
-    if method == "USE" then
+
+    if not definitions.methods.ALL_AVAILABLE_METHODS:has(method) then
+        return
+    end
+
+    if method == definitions.methods.ALL_METHOD then
+        for _, m in ipairs(definitions.methods.ALL_AVAILABLE_METHODS:entries()) do
+            self:insert(m, path, handlers)
+        end
+        return
+    end
+
+    if method == definitions.methods.MW_METHOD_METHOD then
         local s = getScore()
-        mws[s] = { path = raw_path, middlewares = handlers, method = "USE", score = s }
+        mws[s] = { path = path, middlewares = handlers, method = definitions.methods.MW_METHOD, score = s }
         return self
     end
 
     -- 1. split + expand optionals into concrete paths
-    local baseParts = split(raw_path)
+    local baseParts = split(path)
     local expanded = {}
     expandOptionals(baseParts, 1, {}, expanded)
-
-
 
     -- 2. for each concrete variant, walk/attach into the trie
     for _, parts in ipairs(expanded) do
@@ -196,8 +191,7 @@ function Trie:insert(method, raw_path, ...)
         if not rec then
             local s = getScore()
             if parts[#parts] == "*" then
-                -- need to be added as middleware
-                mws[s] = { path = raw_path, middlewares = handlers, method = method, score = s }
+                mws[s] = { path = path, middlewares = handlers, method = method, score = s }
             end
             rec = {
                 handlers     = handlers,
@@ -216,28 +210,13 @@ function Trie:insert(method, raw_path, ...)
         end
     end
 
-
     return self
 end
 
--- mw are added if :
--- the path match (with dynamic, pattern and wildcard but not optionnal)
--- the score of the concrete route > score of mw
--- print("-----MIDDLEWARES-----")
--- print(inspect(mws))
--- print("-----HANDLERS-----")
--- print(inspect(hds))
 function Trie:attachMiddlewares()
-    -- a route can be registered as middleware too
-    -- in order to not leak functions between middleware, we copy it
-    -- make sure no mwNode.middlewares table is ever the same as its handlers table
+    -- prevent mw insertion duplication
     for _, mwNode in pairs(mws) do
-        local orig = mwNode.middlewares
-        local copy = {}
-        for i, fn in ipairs(orig) do
-            copy[i] = fn
-        end
-        mwNode.middlewares = copy
+        mwNode.middlewares = plainCopy(mwNode.middlewares)
     end
 
     for scored_indexed, mwNode in pairs(mws) do
@@ -259,16 +238,8 @@ function Trie:attachMiddlewares()
                 if isCompatible then
                     local middlewares = mwNode.middlewares
                     local handlers = handlerNode.handlers
-                    -- print("middlewares will be added from path : " ..
-                    --     mwNode.path .. " and score : " .. tostring(mwNode.score))
-                    -- print(inspect(middlewares))
-                    -- print("to path: " .. handlerNode.path .. " score : " .. tostring(handlerNode.score))
-                    -- print(inspect(handlers))
-
-                    -- NEW insertion strategy
-                    local n = #handlers
-                    local handlerFn = handlers[n]
-                    handlers[n] = nil -- remove last
+                    local handlerFn = handlers[#handlers]
+                    handlers[#handlers] = nil -- remove last
 
                     for _, mw in ipairs(middlewares) do
                         table.insert(handlers, mw)
@@ -284,15 +255,6 @@ function Trie:attachMiddlewares()
     hds = nil
 end
 
--- local insertedIdx = 1
--- for _, mw in ipairs(middlewares) do
---     table.insert(handlers, insertedIdx, mw)
---     print("now we have : ")
---     print(inspect(handlers))
---     print("\n")
---     insertedIdx = insertedIdx + 1
--- end
-
 function Trie:search(method, path)
     if not isMwPopulated then
         self:attachMiddlewares()
@@ -306,7 +268,6 @@ function Trie:search(method, path)
 
     local values = {} -- capture dynamic & wildcard values in order
     local i, n   = 1, #parts
-
 
     while i <= n do
         local part = parts[i]
@@ -340,8 +301,6 @@ function Trie:search(method, path)
                 end
             end
 
-            -- print(part, "matches : " .. tostring(matched))
-
             if matched then
                 i = i + 1
             else
@@ -372,6 +331,12 @@ function Trie:search(method, path)
     end
 
     return rec.handlers, params
+end
+
+-- debugging purpose
+---@private
+function Trie:__call()
+    return self.root
 end
 
 return Trie
