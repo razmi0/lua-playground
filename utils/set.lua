@@ -6,28 +6,28 @@ function Set.new()
 end
 
 function Set:has(key)
-    if Set[key] then return true end
+    if self[key] then return true end
 end
 
 function Set:add(key)
     if type(key) == "table" then
         local keys = key
         for _, k in ipairs(keys) do
-            Set[k] = true
+            self[k] = true
         end
     else
-        Set[key] = true
+        self[key] = true
     end
     return self
 end
 
 function Set:delete(key)
-    Set[key] = nil
+    self[key] = nil
 end
 
 function Set:entries()
     local entries = {}
-    for key, value in pairs(Set) do
+    for key, value in pairs(self) do
         if value == true then
             table.insert(entries, key)
         end
