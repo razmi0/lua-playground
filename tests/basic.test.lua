@@ -29,6 +29,13 @@ Tx.describe("basics", function()
         Tx.equal(results, methods)
     end)
 
+    Tx.it("should throw unknown method", function()
+        Tx.throws(function()
+            local trie = Trie.new()
+            trie:insert("UNKNOWN", "/hello", function() return m end)
+        end)
+    end)
+
     Tx.it("should insert and search all methods via ALL method", function()
         local methods = { "GET", "POST", "PUT", "PATCH", "HEAD", "OPTIONS", "DELETE" }
         local expected = { "hello", "hello", "hello", "hello", "hello", "hello", "hello" }
