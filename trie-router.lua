@@ -134,26 +134,27 @@ end
 
 function Trie:insert(method, path, ...)
     local handlers = { ... }
-
     if not definitions.methods.ALL_AVAILABLE_METHODS:has(method) then
         return
-    end
-
-    if method == definitions.methods.ALL_METHOD then
-        for _, m in ipairs(definitions.methods.ALL_AVAILABLE_METHODS:entries()) do
-            self:insert(m, path, handlers)
+    elseif method == definitions.methods.ALL_METHOD then
+        for _, m in ipairs(definitions.methods.STD_METHODS:entries()) do
+            self:insert(m, path, ...)
         end
         return
-    end
-
-    if method == definitions.methods.MW_METHOD_METHOD then
+    elseif method == definitions.methods.MW_METHOD_METHOD then
         local s = getScore()
-        mws[s] = { path = path, middlewares = handlers, method = definitions.methods.MW_METHOD, score = s }
+        mws[s] = {
+            path = path,
+            middlewares = { ... },
+            method = definitions.methods.MW_METHOD,
+            score = s
+        }
         return self
     end
-
     -- 1. split + expand optionals into concrete paths
     local baseParts = split(path)
+    -- print(path)
+    -- print(inspect(baseParts))
     local expanded = {}
     expandOptionals(baseParts, 1, {}, expanded)
 
