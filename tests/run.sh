@@ -1,5 +1,5 @@
 #!/bin/bash
 
 clear
-lua ./tests/basic.lua
-lua ./tests/middleware.lua
+lua ./tests/basic.test.lua
+lua ./tests/middleware.test.lua
