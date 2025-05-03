@@ -1,9 +1,5 @@
 local inspect = require("inspect")
-
 local Tx = {}
-local fails_count = 0
-local tests_count = 0
-local name = ""
 
 -- Helpers
 
@@ -38,6 +34,9 @@ local function deep_contains(container, value)
     end
     return false
 end
+
+-- Printing Queue
+
 local queue = {
     name      = "",
     output    = {
@@ -47,12 +46,15 @@ local queue = {
     testCount = 0,
     failCount = 0,
 }
+
 local function addPlus(plus)
     queue.output.pluses = queue.output.pluses .. plus
 end
+
 local function addRule(msg, err)
     queue.output.rules = queue.output.rules .. red("   " .. msg .. "\n" .. "    " .. err .. "\n")
 end
+
 local function addOutput(msg, err)
     local success = not msg and not err
     if success then
@@ -62,16 +64,18 @@ local function addOutput(msg, err)
         addRule(msg, err)
     end
 end
+
 local function addCount()
     queue.testCount = queue.testCount + 1
 end
+
 local function addFailed()
     queue.failCount = queue.failCount + 1
 end
+
 local function addName(_name)
     queue.name = _name
 end
-
 
 local function printResults()
     local successes = queue.testCount - queue.failCount
