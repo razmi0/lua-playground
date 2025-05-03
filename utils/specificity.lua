@@ -12,7 +12,7 @@ local function findBest(nodes, part, remain)
             best = d
         end
     end
-    return best
+    return best and best.node
 end
 
 return findBest
