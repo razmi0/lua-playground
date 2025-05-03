@@ -1,7 +1,7 @@
-local inspect = require("inspect")
 local Router = require("router")
 local Tx = require("tests.tx")
 
+print("# Basics Tests")
 Tx.describe("static", function()
     Tx.it("should match static route", function()
         local router = Router.new()
