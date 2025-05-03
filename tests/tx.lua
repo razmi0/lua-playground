@@ -8,13 +8,15 @@ local name = ""
 -- Helpers
 
 local function red(str)
-    local code = "\27[31m" or "\27[0m"
-    return code .. str .. "\27[0m"
+    return "\27[31m" .. str .. "\27[0m"
 end
 
 local function green(str)
-    local code = "\27[32m" or "\27[0m"
-    return code .. str .. "\27[0m"
+    return "\27[32m" .. str .. "\27[0m"
+end
+
+local function lgrey(str)
+    return "\27[90m" .. str .. "\27[0m"
 end
 
 local function reset(str)
@@ -36,34 +38,76 @@ local function deep_contains(container, value)
     end
     return false
 end
+local queue = {
+    name      = "",
+    output    = {
+        pluses = "",
+        rules = ""
+    },
+    testCount = 0,
+    failCount = 0,
+}
+local function addPlus(plus)
+    queue.output.pluses = queue.output.pluses .. plus
+end
+local function addRule(msg, err)
+    queue.output.rules = queue.output.rules .. red("   " .. msg .. "\n" .. "    " .. err .. "\n")
+end
+local function addOutput(msg, err)
+    local success = not msg and not err
+    if success then
+        addPlus(green("+"))
+    else
+        addPlus(red("+"))
+        addRule(msg, err)
+    end
+end
+local function addCount()
+    queue.testCount = queue.testCount + 1
+end
+local function addFailed()
+    queue.failCount = queue.failCount + 1
+end
+local function addName(_name)
+    queue.name = _name
+end
+
+
+local function printResults()
+    local successes = queue.testCount - queue.failCount
+    print("[Tx] " .. queue.name)
+    print(lgrey(tostring(successes .. "/" .. queue.testCount)) .. " " .. queue.output.pluses)
+    print(queue.output.rules)
+end
 
 -- Lib
 
 function Tx.describe(xname, fn)
-    fails_count = 0
-    tests_count = 0
-    name = xname
-    print("\n" .. name)
+    queue = {
+        name      = "",
+        output    = {
+            pluses = "",
+            rules = ""
+        },
+        testCount = 0,
+        failCount = 0,
+    }
+    addName(xname)
     fn()
-    if fails_count == 0 then
-        print(green(" ok"))
-    else
-        print(reset("Failed ") .. red(tostring(fails_count)) .. "/" .. tostring(tests_count))
-    end
+    printResults()
 end
 
 function Tx.it(msg, func)
     if Tx.beforeEach then
         Tx.afterEach()
     end
-    tests_count = tests_count + 1
+    addCount()
     local success, internal_err_msg = pcall(func)
     if not success then
-        fails_count = fails_count + 1
-        io.write(red("+ "))
-        print(red("\n" .. msg), red(internal_err_msg))
+        addFailed()
+        addOutput(msg, internal_err_msg)
     else
-        io.write(green("+"))
+        addOutput()
     end
     if Tx.afterEach then
         Tx.afterEach()
