@@ -99,6 +99,7 @@ function Tx.describe(xname, fn)
     addName(xname)
     fn()
     printResults()
+    return queue
 end
 
 function Tx.it(msg, func)
