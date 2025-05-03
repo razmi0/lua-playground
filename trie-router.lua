@@ -11,24 +11,20 @@
 ---Router Trie class
 ---@class Trie
 ---@field root table internal trie root node
-local Trie                  = {}
-Trie.__index                = Trie
-Trie.__name                 = "Trie"
-local parse                 = require("utils.parse-path")
-local split                 = require("utils.split-path")
-local plainCopy             = require("utils.plain-copy")
-local prune                 = require("utils.prune")
-local isCompatible          = require("utils.compare-middleware")
-local expand                = require("utils.expand-optional")
-local findBest              = require("utils.specificity")
-local defs                  = require("router-definitions")
-local ALL_AVAILABLE_METHODS = defs.methods.ALL_AVAILABLE_METHODS
-local ALL_METHOD            = defs.methods.ALL_METHOD
-local STD_METHODS           = defs.methods.STD_METHODS
-local order                 = 0
-local mws                   = {}
-local hds                   = {}
-local isMwPopulated         = false
+local Trie          = {}
+Trie.__index        = Trie
+Trie.__name         = "Trie"
+local parse         = require("utils.parse-path")
+local split         = require("utils.split-path")
+local plainCopy     = require("utils.plain-copy")
+local prune         = require("utils.prune")
+local isCompatible  = require("utils.compare-middleware")
+local expand        = require("utils.expand-optional")
+local findBest      = require("utils.specificity")
+local order         = 0
+local mws           = {}
+local hds           = {}
+local isMwPopulated = false
 local function newNode()
     return { static = {}, dynamic = {}, wildcard = nil, handlers = {} }
 end
@@ -51,19 +47,6 @@ end
 ---@return Trie self
 function Trie:insert(method, path, ...)
     local fns = { ... }
-
-    if not ALL_AVAILABLE_METHODS:has(method) then
-        error("Unknown method : " .. method)
-        return self
-    end
-
-    if method == ALL_METHOD then
-        for _, m in ipairs(STD_METHODS:entries()) do
-            self:insert(m, path, ...)
-        end
-        return self
-    end
-
     local variants = {}
     expand(split(path), 1, {}, variants, false)
     for _, parts in ipairs(variants) do
