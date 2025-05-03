@@ -1,18 +1,36 @@
 local Router = require("router")
 local Tx = require("tests.tx")
 
-Tx.describe("middlewares", function()
-    Tx.it("should call explicit chained middlewares", function()
+print("\n# Middleware Tests")
+Tx.describe("basics", function()
+    Tx.it("should call exact-prefix middleware for exact path", function()
         local router = Router.new()
-        local count = 0
-        router:add("GET", "/count",
-            function() count = count + 1 end,
-            function() count = count + 2 end,
-            function() count = count + 3 end
-        )
-        local x, _ = router:match("GET", "/count")
+        local called = false
+        router:add("USE", "/admin", function() called = true end)
+        router:add("GET", "/admin", function() return "ok" end)
+        local x, _ = router:match("GET", "/admin")
         for _, fn in ipairs(x) do fn() end
-        Tx.equal(count, 6)
+        Tx.equal(called, true)
+    end)
+
+    Tx.it("should not call exact-prefix middleware for deeper path", function()
+        local router = Router.new()
+        local called = false
+        router:add("USE", "/admin", function() called = true end)
+        router:add("GET", "/admin/dashboard", function() return "ok" end)
+        local x, _ = router:match("GET", "/admin/dashboard")
+        for _, fn in ipairs(x) do fn() end
+        Tx.equal(called, false)
+    end)
+
+    Tx.it("should match middleware on root path", function()
+        local router = Router.new()
+        local step = {}
+        router:add("USE", "*", function() table.insert(step, "mw") end)
+        router:add("GET", "/", function() table.insert(step, "handler") end)
+        local x, _ = router:match("GET", "/")
+        for _, fn in ipairs(x) do fn() end
+        Tx.equal(step, { "mw", "handler" })
     end)
 
     Tx.it("should call middleware with wildcard", function()
@@ -26,6 +44,18 @@ Tx.describe("middlewares", function()
         Tx.equal(called, true)
     end)
 
+    Tx.it("should run wildcard middleware even without trailing path", function()
+        local router = Router.new()
+        local called = false
+        router:add("USE", "/blog/*", function() called = true end)
+        router:add("GET", "/blog", function() return 1 end)
+        local x, _ = router:match("GET", "/blog")
+        for _, fn in ipairs(x) do fn() end
+        Tx.equal(called, true)
+    end)
+end)
+
+Tx.describe("order", function()
     Tx.it("should call multiple middlewares in order", function()
         local router = Router.new()
         local log = {}
@@ -37,6 +67,32 @@ Tx.describe("middlewares", function()
         Tx.equal(log, { "A", "B" })
     end)
 
+    Tx.it("should call explicit chained middlewares", function()
+        local router = Router.new()
+        local count = 0
+        router:add("GET", "/count",
+            function() count = count + 1 end,
+            function() count = count + 2 end,
+            function() count = count + 3 end
+        )
+        local x, _ = router:match("GET", "/count")
+        for _, fn in ipairs(x) do fn() end
+        Tx.equal(count, 6)
+    end)
+
+    Tx.it("should preserve order: middleware then handler always last", function()
+        local router = Router.new()
+        local order = {}
+        router:add("USE", "/x/*", function() table.insert(order, "mw1") end)
+        router:add("USE", "/x/test", function() table.insert(order, "mw2") end)
+        router:add("GET", "/x/test", function() table.insert(order, "handler") end)
+        local x, _ = router:match("GET", "/x/test")
+        for _, fn in ipairs(x) do fn() end
+        Tx.equal(order, { "mw1", "mw2", "handler" })
+    end)
+end)
+
+Tx.describe("exclusion", function()
     Tx.it("should not call unrelated middleware", function()
         local router = Router.new()
         local called = false
@@ -45,47 +101,6 @@ Tx.describe("middlewares", function()
         local x, _ = router:match("GET", "/private/zone")
         for _, fn in ipairs(x) do fn() end
         Tx.equal(called, false)
-    end)
-
-    Tx.it("should match middleware on root path", function() --
-        local router = Router.new()
-        local step = {}
-        router:add("USE", "*", function() table.insert(step, "mw") end)
-        router:add("GET", "/", function() table.insert(step, "handler") end)
-        local x, _ = router:match("GET", "/")
-        for _, fn in ipairs(x) do fn() end
-        Tx.equal(step, { "mw", "handler" })
-    end)
-
-    Tx.it("should allow method-specific middleware", function()
-        local router = Router.new()
-        local method_called = nil
-        router:add("USE", "/x/*", function() method_called = "USE" end)
-        router:add("POST", "/x/test", function() method_called = "POST" end)
-        local x, _ = router:match("POST", "/x/test")
-        for _, fn in ipairs(x) do fn() end
-        Tx.equal(method_called, "POST") -- USE should not override POST
-    end)
-
-    Tx.it("should accumulate middleware from parent paths", function()
-        local router = Router.new()
-        local list = {}
-        router:add("USE", "/api/*", function() table.insert(list, "api") end)
-        router:add("USE", "/api/users/*", function() table.insert(list, "users") end)
-        router:add("GET", "/api/users/42", function() table.insert(list, "handler") end)
-        local x, _ = router:match("GET", "/api/users/42")
-        for _, fn in ipairs(x) do fn() end
-        Tx.equal(list, { "api", "users", "handler" })
-    end)
-
-    Tx.it("should run wildcard middleware even without trailing path", function()
-        local router = Router.new()
-        local called = false
-        router:add("USE", "/blog/*", function() called = true end)
-        router:add("GET", "/blog", function() return 1 end)
-        local x, _ = router:match("GET", "/blog")
-        for _, fn in ipairs(x) do fn() end
-        Tx.equal(called, true)
     end)
 
     Tx.it("should skip middleware if path doesn't match prefix", function()
@@ -97,16 +112,26 @@ Tx.describe("middlewares", function()
         for _, fn in ipairs(x) do fn() end
         Tx.equal(log, { "handler" })
     end)
+end)
+
+Tx.describe("method-specific", function()
+    Tx.it("should allow method-specific middleware", function()
+        local router = Router.new()
+        local method_called = nil
+        router:add("USE", "/x/*", function() method_called = "USE" end)
+        router:add("POST", "/x/test", function() method_called = "POST" end)
+        local x, _ = router:match("POST", "/x/test")
+        for _, fn in ipairs(x) do fn() end
+        Tx.equal(method_called, "POST")
+    end)
 
     Tx.it("should call middleware only for GET method", function()
         local router = Router.new()
         local called = false
         router:add("GET", "/secure/*", function() called = true end)
         router:add("POST", "/secure/data", function() return "no-mw" end)
-
         local x, _ = router:match("POST", "/secure/data")
         for _, fn in ipairs(x) do fn() end
-
         Tx.equal(called, false)
     end)
 
@@ -115,25 +140,44 @@ Tx.describe("middlewares", function()
         local log = {}
         router:add("GET", "/api/*", function() table.insert(log, "mw") end)
         router:add("GET", "/api/endpoint", function() table.insert(log, "handler") end)
-
         local x, _ = router:match("GET", "/api/endpoint")
         for _, fn in ipairs(x) do fn() end
-
         Tx.equal(log, { "mw", "handler" })
     end)
+end)
 
+Tx.describe("accumulation", function()
+    Tx.it("should accumulate middleware from parent paths", function()
+        local router = Router.new()
+        local list = {}
+        router:add("USE", "/api/*", function() table.insert(list, "api") end)
+        router:add("USE", "/api/users/*", function() table.insert(list, "users") end)
+        router:add("GET", "/api/users/42", function() table.insert(list, "handler") end)
+        local x, _ = router:match("GET", "/api/users/42")
+        for _, fn in ipairs(x) do fn() end
+        Tx.equal(list, { "api", "users", "handler" })
+    end)
+
+    Tx.it("should throw when middleware errors during execution", function()
+        local router = Router.new()
+        router:add("USE", "/err/*", function() error("fail") end)
+        router:add("GET", "/err/test", function() return "ok" end)
+        local x, _ = router:match("GET", "/err/test")
+        -- first fn is middleware, should error
+        Tx.throws(function() x[1]() end)
+    end)
+end)
+
+Tx.describe("duplicates", function()
     Tx.it("should call duplicated middleware twice", function()
         local router = Router.new()
         local count = 0
         local mw = function() count = count + 1 end
-
         router:add("USE", "/multi/*", mw)
         router:add("USE", "/multi/*", mw)
         router:add("GET", "/multi/hit", function() return "end" end)
-
         local x, _ = router:match("GET", "/multi/hit")
         for _, fn in ipairs(x) do fn() end
-
         Tx.equal(count, 2)
     end)
 
@@ -143,10 +187,8 @@ Tx.describe("middlewares", function()
         router:add("GET", "/dup/*", function() table.insert(record, "first") end)
         router:add("GET", "/dup/*", function() table.insert(record, "second") end)
         router:add("GET", "/dup/here", function() table.insert(record, "handler") end)
-
         local x, _ = router:match("GET", "/dup/here")
         for _, fn in ipairs(x) do fn() end
-
         Tx.equal(record, { "first", "second", "handler" })
     end)
 end)
