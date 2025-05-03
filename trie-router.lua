@@ -21,6 +21,8 @@ local prune         = require("utils.prune")
 local isCompatible  = require("utils.compare-middleware")
 local expand        = require("utils.expand-optional")
 local findBest      = require("utils.specificity")
+local defs          = require("router-definitions")
+local MW_METHOD     = defs.methods.MW_METHOD
 local order         = 0
 local mws           = {}
 local hds           = {}
@@ -47,6 +49,16 @@ end
 ---@return Trie self
 function Trie:insert(method, path, ...)
     local fns = { ... }
+    if method == MW_METHOD then
+        local score = nextOrder()
+        mws[order] = {
+            path = path,
+            middlewares = { ... },
+            method = MW_METHOD,
+            score = score
+        }
+        return self
+    end
     local variants = {}
     expand(split(path), 1, {}, variants, false)
     for _, parts in ipairs(variants) do
