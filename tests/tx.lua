@@ -15,10 +15,6 @@ local function lgrey(str)
     return "\27[90m" .. str .. "\27[0m"
 end
 
-local function reset(str)
-    return "\27[0m" .. str .. "\27[0m"
-end
-
 local function deep_contains(container, value)
     if type(container) == "string" then
         return container:find(value, 1, true) ~= nil
@@ -81,7 +77,9 @@ local function printResults()
     local successes = queue.testCount - queue.failCount
     print("[Tx] " .. queue.name)
     print(lgrey(tostring(successes .. "/" .. queue.testCount)) .. " " .. queue.output.pluses)
-    print(queue.output.rules)
+    if queue.output.rules ~= "" then
+        print(queue.output.rules)
+    end
 end
 
 -- Lib
