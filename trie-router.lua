@@ -154,19 +154,17 @@ end
 ---Searches for handlers matching a given method and path.
 ---@param method Method HTTP method to match
 ---@param path Path to search
----@return MatchResult?, table? list of handlers and extracted params or nil
+---@return MatchResult?, table?, boolean? list of handlers and extracted params or nil
 function Trie:search(method, path)
     if not isMwPopulated then
         self:attachMiddlewares() -- one shot last compilation step
         self:clean()             -- one shot optional cleanup
     end
 
-    local node, parts, values, i = self.root, split(path), {}, 1
-    if not node then return end
-
+    local node, parts, values, i, matched = self.root, split(path), {}, 1, false
     while i <= #parts do
         local part = parts[i]
-        local matched = false
+        matched = false
         local function nextStep() i, matched = i + 1, true end
 
         -- 1) static
@@ -200,7 +198,7 @@ function Trie:search(method, path)
 
     -- end of path:
     local rec = node[method]
-    if not rec then return end
+    if not rec then return nil, nil, matched end
 
     -- build params map from the ordered keys
     local params = {}
@@ -208,7 +206,7 @@ function Trie:search(method, path)
         params[key] = values[j]
     end
 
-    return rec.handlers, params
+    return rec.handlers, params, matched
 end
 
 -- debugging purpose
