@@ -2,7 +2,8 @@
 -- optional segments expansion, Lua pattern validation, and middleware attachment.
 -- @module router
 
----@alias Method "GET"|"POST"|"PUT"|"PATCH"|"HEAD"|"OPTIONS"|"USE"
+---@alias StdMethod  "GET"|"POST"|"PUT"|"PATCH"|"HEAD"|"OPTIONS"|"USE"|"ALL"
+---@alias Method StdMethod|string
 ---@alias Path string
 ---@alias Handler fun(...):any
 ---@alias Middleware fun(...):any
