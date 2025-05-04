@@ -1,12 +1,10 @@
-local Trie                  = require("trie-router")
-
-local Router                = {}
-Router.__index              = Router
-Router.__name               = "TrieRouter"
-local defs                  = require("router-definitions")
-local ALL_AVAILABLE_METHODS = defs.methods.ALL_AVAILABLE_METHODS
-local ALL_METHOD            = defs.methods.ALL_METHOD
-local STD_METHODS           = defs.methods.STD_METHODS
+local Router      = {}
+Router.__index    = Router
+Router.__name     = "TrieRouter"
+local Trie        = require("trie-router")
+local include     = require("utils.include")
+local STD_METHODS = { "GET", "POST", "PUT", "PATCH", "HEAD", "OPTIONS", "DELETE" }
+local ALL_METHOD  = "ALL"
 
 function Router.new()
     return setmetatable({
@@ -15,13 +13,8 @@ function Router.new()
 end
 
 function Router:add(method, path, ...)
-    if not ALL_AVAILABLE_METHODS:has(method) then
-        error("Unknown method : " .. method)
-        return
-    end
-
     if method == ALL_METHOD then
-        for _, m in ipairs(STD_METHODS:entries()) do
+        for _, m in ipairs(STD_METHODS) do
             self.trie:insert(m, path, ...)
         end
         return
