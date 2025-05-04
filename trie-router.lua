@@ -12,21 +12,22 @@
 ---Router Trie class
 ---@class Trie
 ---@field root table internal trie root node
-local Trie          = {}
-Trie.__index        = Trie
-Trie.__name         = "Trie"
-local parse         = require("utils.parse-path")
-local split         = require("utils.split-path")
-local plainCopy     = require("utils.plain-copy")
-local prune         = require("utils.prune")
-local isCompatible  = require("utils.compare-middleware")
-local expand        = require("utils.expand-optional")
-local findBest      = require("utils.specificity")
-local MW_METHOD     = "USE"
-local order         = 0
-local mws           = {}
-local hds           = {}
-local isMwPopulated = false
+local Trie                             = {}
+Trie.__index                           = Trie
+Trie.__name                            = "Trie"
+local parse                            = require("utils.parse-path")
+local split                            = require("utils.split-path")
+local plainCopy                        = require("utils.plain-copy")
+local prune                            = require("utils.prune")
+local isCompatible                     = require("utils.compare-middleware")
+local expand                           = require("utils.expand-optional")
+local findBest                         = require("utils.specificity")
+local MW_METHOD                        = "USE"
+local MESSAGE_MATCHER_IS_ALREADY_BUILT = "Can not add a route since the matcher is already built"
+local order                            = 0
+local mws                              = {}
+local hds                              = {}
+local isMwPopulated                    = false
 local function newNode()
     return { static = {}, dynamic = {}, wildcard = nil, handlers = {} }
 end
@@ -48,6 +49,11 @@ end
 ---@param ... Handler|Middleware functions
 ---@return Trie self
 function Trie:insert(method, path, ...)
+    if isMwPopulated then
+        error(MESSAGE_MATCHER_IS_ALREADY_BUILT)
+        return self
+    end
+
     local fns = { ... }
     if method == MW_METHOD then
         local score = nextOrder()
