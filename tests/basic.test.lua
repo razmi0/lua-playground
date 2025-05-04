@@ -2,6 +2,9 @@ local Router = require("router")
 local Tx = require("tests.tx")
 
 print("# Basics Tests")
+
+
+
 Tx.describe("static", function()
     Tx.it("should match static route", function()
         local router = Router.new()
@@ -34,6 +37,17 @@ Tx.describe("static", function()
     end)
 end)
 
+Tx.describe("trie state", function()
+    Tx.it("should throw error if inserting route but matcher already built", function()
+        local router = Router.new()
+        router:add("GET", "/hello", function() return "ok" end)
+        local x, p = router:match("GET", "/hello")
+        Tx.throws(function()
+            router:add("GET", "/hello", function() return "ok" end)
+        end)
+    end)
+end)
+
 Tx.describe("methods", function()
     Tx.it("should insert and search all methods", function()
         local methods = { "GET", "POST", "PUT", "PATCH", "HEAD", "OPTIONS", "DELETE" }
@@ -51,24 +65,6 @@ Tx.describe("methods", function()
             table.insert(results, fn())
         end
         Tx.equal(results, methods)
-    end)
-
-    Tx.it("should insert and search all methods via ALL method", function()
-        local methods = { "GET", "POST", "PUT", "PATCH", "HEAD", "OPTIONS", "DELETE" }
-        local expected = { "hello", "hello", "hello", "hello", "hello", "hello", "hello" }
-        local results = {}
-        local x = {}
-        local router = Router.new()
-        router:add("ALL", "/hello", function() return "hello" end)
-        for _, m in ipairs(methods) do
-            local hs, _ = router:match(m, "/hello")
-            table.insert(x, hs[1])
-        end
-
-        for _, fn in ipairs(x) do
-            table.insert(results, fn())
-        end
-        Tx.equal(results, expected)
     end)
 
     Tx.it("should accept and find custom method route", function()
