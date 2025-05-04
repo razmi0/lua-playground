@@ -2,7 +2,7 @@
 -- optional segments expansion, Lua pattern validation, and middleware attachment.
 -- @module router
 
----@alias Method "GET"|"POST"|"PUT"|"PATCH"|"HEAD"|"OPTIONS"|"ALL"|"USE"
+---@alias Method "GET"|"POST"|"PUT"|"PATCH"|"HEAD"|"OPTIONS"|"USE"
 ---@alias Path string
 ---@alias Handler fun(...):any
 ---@alias Middleware fun(...):any
@@ -21,8 +21,7 @@ local prune         = require("utils.prune")
 local isCompatible  = require("utils.compare-middleware")
 local expand        = require("utils.expand-optional")
 local findBest      = require("utils.specificity")
-local defs          = require("router-definitions")
-local MW_METHOD     = defs.methods.MW_METHOD
+local MW_METHOD     = "USE"
 local order         = 0
 local mws           = {}
 local hds           = {}
