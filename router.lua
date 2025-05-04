@@ -2,7 +2,6 @@ local Router      = {}
 Router.__index    = Router
 Router.__name     = "TrieRouter"
 local Trie        = require("trie-router")
-local include     = require("utils.include")
 local STD_METHODS = { "GET", "POST", "PUT", "PATCH", "HEAD", "OPTIONS", "DELETE" }
 local ALL_METHOD  = "ALL"
 
