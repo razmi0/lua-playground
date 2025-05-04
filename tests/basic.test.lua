@@ -49,6 +49,15 @@ Tx.describe("trie state", function()
 end)
 
 Tx.describe("methods", function()
+    Tx.it("should return 405 type no handler but found match", function()
+        local router = Router.new()
+        router:add("GET", "/hello", function() return "hello" end)
+        local x, p, match = router:match("POST", "/hello")
+        Tx.equal(x, nil)
+        Tx.equal(p, nil)
+        Tx.equal(match, true)
+    end)
+
     Tx.it("should insert and search all methods", function()
         local methods = { "GET", "POST", "PUT", "PATCH", "HEAD", "OPTIONS", "DELETE" }
         local results = {}
