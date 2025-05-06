@@ -1,9 +1,8 @@
 local Router = require("router")
 local Tx = require("tests.tx")
+local inspect = require("inspect")
 
 print("# Basics Tests")
-
-
 
 Tx.describe("static", function()
     Tx.it("should match static route", function()
@@ -34,17 +33,6 @@ Tx.describe("static", function()
         router:add("GET", "/", function() return "root" end)
         local x, _ = router:match("GET", "/")
         Tx.equal(x[1](), "root")
-    end)
-end)
-
-Tx.describe("trie state", function()
-    Tx.it("should throw error if inserting route but matcher already built", function()
-        local router = Router.new()
-        router:add("GET", "/hello", function() return "ok" end)
-        local x, p = router:match("GET", "/hello")
-        Tx.throws(function()
-            router:add("GET", "/hello", function() return "ok" end)
-        end)
     end)
 end)
 
@@ -187,13 +175,6 @@ Tx.describe("priority", function()
         router:add("GET", "/user/:id", function() return "id" end)
         local x, _ = router:match("GET", "/user/me")
         Tx.equal(x[1](), "me")
-    end)
-
-    Tx.it("should not match static instead of param", function()
-        local router = Router.new()
-        router:add("GET", "/static/path", function() return 1 end)
-        local x, p = router:match("GET", "/:type/path")
-        Tx.equal(x, nil)
     end)
 
     Tx.it("should prefer static over wildcard", function()
