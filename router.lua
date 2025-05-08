@@ -1,3 +1,4 @@
+local inspect  = require("inspect")
 ---@class Router
 ---@field trie Trie internal trie router
 local Router   = {}
@@ -26,5 +27,22 @@ end
 function Router:match(method, path)
     return self.trie:search(method, path)
 end
+
+local router = Router.new()
+
+router.trie:insert("USE", "*", function()
+    return "use"
+end)
+
+router.trie:insert("GET", "/items", function()
+    return "static"
+end)
+
+local hs, p = router.trie:search("GET", "/static")
+
+print(inspect(hs), inspect(p), inspect(router.trie.root))
+
+
+
 
 return Router

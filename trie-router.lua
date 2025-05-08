@@ -12,22 +12,16 @@
 ---Router Trie class
 ---@class Trie
 ---@field root table internal trie root node
-local Trie                             = {}
-Trie.__index                           = Trie
-Trie.__name                            = "Trie"
-local parse                            = require("utils.parse-path")
-local split                            = require("utils.split-path")
-local plainCopy                        = require("utils.plain-copy")
-local prune                            = require("utils.prune")
-local isCompatible                     = require("utils.compare-middleware")
-local expand                           = require("utils.expand-optional")
-local findBest                         = require("utils.specificity")
-local MW_METHOD                        = "USE"
-local MESSAGE_MATCHER_IS_ALREADY_BUILT = "Can not add a route since the matcher is already built"
-local order                            = 0
-local mws                              = {}
-local hds                              = {}
-local isMwPopulated                    = false
+local Trie      = {}
+Trie.__index    = Trie
+Trie.__name     = "Trie"
+local parse     = require("utils.parse-path")
+local split     = require("utils.split-path")
+local prune     = require("utils.prune")
+local expand    = require("utils.expand-optional")
+local findBest  = require("utils.specificity")
+local MW_METHOD = "USE"
+local order     = 0
 local function newNode()
     return { static = {}, dynamic = {}, wildcard = nil, handlers = {} }
 end
@@ -39,7 +33,7 @@ end
 ---Creates a new Trie router instance.
 ---@return Trie self
 function Trie.new()
-    order, mws, hds, isMwPopulated = 0, {}, {}, false
+    order = 0
     return setmetatable({ root = newNode() }, Trie)
 end
 
@@ -49,22 +43,11 @@ end
 ---@param ... Handler|Middleware functions
 ---@return Trie self
 function Trie:insert(method, path, ...)
-    if isMwPopulated then
-        error(MESSAGE_MATCHER_IS_ALREADY_BUILT)
-        return self
-    end
-
     local fns = { ... }
-    if method == MW_METHOD then
-        local score = nextOrder()
-        mws[order] = {
-            path = path,
-            middlewares = { ... },
-            method = MW_METHOD,
-            score = score
-        }
-        return self
-    end
+    -- if method == MW_METHOD then
+    --     local ord = nextOrder()
+    --     return self
+    -- end
     local variants = {}
     expand(split(path), 1, {}, variants, false)
     for _, parts in ipairs(variants) do
@@ -110,10 +93,6 @@ function Trie:insert(method, path, ...)
                 method = method
             }
             node[method] = rec
-            hds[s] = rec
-            if parts[#parts] == "*" then
-                mws[s] = { path = path, middlewares = fns, method = method, order = s } -- add to mw candidate
-            end
         else
             for _, fn in ipairs(fns) do
                 rec.handlers[#rec.handlers + 1] = fn
@@ -126,29 +105,6 @@ end
 
 function Trie:clean()
     prune(self.root)
-    mws, hds = nil, nil
-    isMwPopulated = true
-end
-
-function Trie:attachMiddlewares()
-    -- prevent mw insertion duplication
-    for _, mwNode in pairs(mws) do mwNode.middlewares = plainCopy(mwNode.middlewares) end
-    for i, mw in pairs(mws) do
-        while true do
-            i = i + 1
-            local hd, nextMw = hds[i], mws[i]
-            if not hd and not nextMw then break end
-            -- ordered handlers and ordered mw make a linear (1,2, n .. n + 1) together
-            -- if no handler AND no mw stored => gap in the linear sequence => all exploration of callbacks done
-            if hd and isCompatible(mw, hd) then
-                local list, handlers = mw.middlewares, hd.handlers
-                local last = handlers[#handlers]
-                handlers[#handlers] = nil -- remove last
-                for _, m in ipairs(list) do handlers[#handlers + 1] = m end
-                handlers[#handlers + 1] = last
-            end
-        end
-    end
 end
 
 ---Searches for handlers matching a given method and path.
@@ -156,11 +112,6 @@ end
 ---@param path Path to search
 ---@return MatchResult?, table?, boolean? list of handlers and extracted params or nil
 function Trie:search(method, path)
-    if not isMwPopulated then
-        self:attachMiddlewares() -- one shot last compilation step
-        self:clean()             -- one shot optional cleanup
-    end
-
     local node, parts, values, i, matched = self.root, split(path), {}, 1, false
     while i <= #parts do
         local part = parts[i]
