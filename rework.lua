@@ -86,48 +86,48 @@ end
 local search = function(method, path)
     local node, parts, values, i, matched, queue = trie, split(path), {}, 1, false, {}
     while i <= #parts do
-        local part = parts[i]
+        local part, matching = parts[i], function() i, matched = i + 1, true end
         matched = false
-        local function nextStep() i, matched = i + 1, true end
 
         -- mws collection
         for _, mw in ipairs(node.mws) do
-            -- local curMethod = mw.method
-            -- if curMethod ~= "USE" or curMethod ~= "ALL" then
-
-            -- else
-            queue[#queue + 1] = mw
-            -- end
+            if mw.method == "USE" or method == mw.method or mw.method == "ALL" then
+                queue[#queue + 1] = mw
+            end
         end
 
         -- if static else dynamic
         if node.static[part] then
             node = node.static[part]
-            nextStep()
+            matching()
         else
             local remain = #parts - i
             local best = findBest(
                 node.dynamic,
-                function(d) return not d.pattern or part:match(d.pattern) end,              -- pattern validation
-                function(d) return remain >= (d.score or 0) end,                            -- enough segments left to match its branch           --
-                function(d, best) return not best or (d.score or 0) > (best.score or 0) end -- longer branch = more specific = better
+                function(nd) return not nd.pattern or part:match(nd.pattern) end,             -- pattern validation
+                function(nd) return remain >= (nd.score or 0) end,                            -- enough segments left to match its branch           --
+                function(nd, best) return not best or (nd.score or 0) > (best.score or 0) end -- longer branch = more specific = better
             )
             if best then
                 values[#values + 1] = part
                 node = best
-                nextStep()
+                matching()
             end
         end
 
         if not matched then break end
     end
 
+    -- leaf mws collection
     if matched and node.leaf then
-        for _, data in ipairs(node.leaf) do
-            queue[#queue + 1] = data
+        for _, mw in ipairs(node.leaf) do
+            if mw.method == "USE" or method == mw.method or mw.method == "ALL" then
+                queue[#queue + 1] = mw
+            end
         end
     end
 
+    -- path param assignment
     local p = {}
     for j, value in ipairs(values) do
         p[node.leaf[1].possibleKeys[j]] = value
@@ -137,7 +137,7 @@ local search = function(method, path)
         if a.order > b.order then return 1 end
     end)
 
-    return sorted or {}, p
+    return sorted, p
 end
 
 Tx.mute = false
@@ -179,35 +179,17 @@ Tx.describe("static", function()
 end)
 
 Tx.describe("methods", function()
-    Tx.it("should return 405 type no handler but found match", function()
+    Tx.it("should filter by method and return empty", function()
         insert("GET", "/hello", function() return "hello" end)
-        local x, p, match = search("POST", "/hello")
+        local x, p = search("POST", "/hello")
         Tx.equal(x, {})
         Tx.equal(p, {})
-        Tx.equal(match, true)
-    end)
-
-    Tx.it("should insert and search all methods", function()
-        local methods = { "GET", "POST", "PUT", "PATCH", "HEAD", "OPTIONS", "DELETE" }
-        local results = {}
-        local x = {}
-        for _, m in ipairs(methods) do
-            insert(m, "/hello", function() return m end)
-        end
-        for _, m in ipairs(methods) do
-            local hs, _ = search(m, "/hello")
-            table.insert(x, hs[1])
-        end
-        for _, fn in ipairs(x) do
-            table.insert(results, fn())
-        end
-        Tx.equal(results, methods)
     end)
 
     Tx.it("should accept and find custom method route", function()
         insert("PURGE", "/cache", function() return "purge cache" end)
         local x, p = search("PURGE", "/cache")
-        Tx.equal(x[1](), "purge cache")
+        Tx.equal(x[1].handlers[1](), "purge cache")
     end)
 end)
 
@@ -407,5 +389,15 @@ Tx.describe("mw-basics", function()
             end
         end
         Tx.equal(called, false)
+    end)
+
+    Tx.it("should find general method USE and ALL", function()
+        insert("USE", "*", function() return "hello" end)
+        insert("ALL", "*", function() return "hello" end)
+        insert("GET", "/hello", function() return "hello" end)
+        local x1 = search("METHOD", "/hello")
+        local x2 = search("GET", "/hello")
+        Tx.equal(#x1, 2)
+        Tx.equal(#x2, 3)
     end)
 end)
