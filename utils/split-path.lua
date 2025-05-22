@@ -1,10 +1,12 @@
-local split = function(str)
-    local x = {}
-    if str == "/" then table.insert(x, "") end
-    for a in string.gmatch(str, "[^/]+") do
-        table.insert(x, a)
+local function split(path)
+    if path == "/" or path == "" then
+        return { "" }
     end
-    return x
+    local parts = {}
+    for segment in string.gmatch(path, "[^/]+") do
+        parts[#parts + 1] = segment
+    end
+    return parts
 end
 
 
