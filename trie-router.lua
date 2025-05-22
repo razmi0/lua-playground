@@ -12,18 +12,17 @@
 ---Router Trie class
 ---@class Trie
 ---@field root table internal trie root node
-local Trie      = {}
-Trie.__index    = Trie
-Trie.__name     = "Trie"
-local parse     = require("utils.parse-path")
-local split     = require("utils.split-path")
-local prune     = require("utils.prune")
-local expand    = require("utils.expand-optional")
-local findBest  = require("utils.specificity")
-local MW_METHOD = "USE"
-local order     = 0
+local Trie     = {}
+Trie.__index   = Trie
+Trie.__name    = "Trie"
+local parse    = require("utils.parse-path")
+local split    = require("utils.split-path")
+local prune    = require("utils.prune")
+local expand   = require("utils.expand-optional")
+local findBest = require("utils.specificity")
+local order    = 0
 local function newNode()
-    return { static = {}, dynamic = {}, wildcard = nil, handlers = {} }
+    return { static = {}, dynamic = {}, mws = {} }
 end
 local function nextOrder()
     order = order + 1
@@ -44,10 +43,6 @@ end
 ---@return Trie self
 function Trie:insert(method, path, ...)
     local fns = { ... }
-    -- if method == MW_METHOD then
-    --     local ord = nextOrder()
-    --     return self
-    -- end
     local variants = {}
     expand(split(path), 1, {}, variants, false)
     for _, parts in ipairs(variants) do
@@ -76,10 +71,24 @@ function Trie:insert(method, path, ...)
             -- 3) wildcard
             if typ == "wildcard" then
                 local child = newNode()
-                node.wildcard = { node = child, name = label }
+                if not node.wildcard then
+                    node.wildcard = { node = child, name = label }
+                else
+                end
                 node = child
                 keys[#keys + 1] = label
             end
+        end
+
+        if method == "USE" then
+            local s = nextOrder()
+            node.mws[#node.mws + 1] = {
+                handlers = fns,
+                order = s,
+                possibleKeys = keys,
+                method = method
+            }
+            return self
         end
 
         local rec = node[method]
