@@ -85,15 +85,18 @@ end
 
 local search = function(method, path)
     local node, parts, values, i, matched, queue = trie, split(path), {}, 1, false, {}
+    local addToQueue = function(mw)
+        if mw.method == "USE" or method == mw.method or mw.method == "ALL" then
+            queue[#queue + 1] = mw
+        end
+    end
     while i <= #parts do
         local part, matching = parts[i], function() i, matched = i + 1, true end
         matched = false
 
         -- mws collection
         for _, mw in ipairs(node.mws) do
-            if mw.method == "USE" or method == mw.method or mw.method == "ALL" then
-                queue[#queue + 1] = mw
-            end
+            addToQueue(mw)
         end
 
         -- if static else dynamic
@@ -121,9 +124,7 @@ local search = function(method, path)
     -- leaf mws collection
     if matched and node.leaf then
         for _, mw in ipairs(node.leaf) do
-            if mw.method == "USE" or method == mw.method or mw.method == "ALL" then
-                queue[#queue + 1] = mw
-            end
+            addToQueue(mw)
         end
     end
 
@@ -140,7 +141,7 @@ local search = function(method, path)
     return sorted, p
 end
 
-Tx.mute = false
+Tx.mute = true
 
 Tx.beforeEach = function()
     trie  = newNode()
@@ -319,6 +320,21 @@ Tx.describe("priority", function()
         local x, p = search("GET", "/user/p1/p2")
         Tx.equal(x[1].handlers[1](), 2)
         Tx.equal(p["2"], "p2")
+    end)
+end)
+
+Tx.describe("chain", function()
+    Tx.it("should execute all functions", function()
+        local r = 0
+        local fn = function() r = r + 1 end
+        insert("GET", "/", fn, fn, fn)
+        local x = search("GET", "/")
+        for _, node in ipairs(x) do
+            for _, h in ipairs(node.handlers) do
+                h()
+            end
+        end
+        Tx.equal(r, 3)
     end)
 end)
 
