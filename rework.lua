@@ -84,19 +84,19 @@ local insert = function(method, path, ...)
 end
 
 local search = function(method, path)
-    local node, parts, values, i, matched, queue = trie, split(path), {}, 1, false, {}
-    local addToQueue = function(mw)
+    local node, parts, values, i, matched, queue, last = trie, split(path), {}, 1, false, {}, false
+    local methodCheck = function(mw)
         if mw.method == "USE" or method == mw.method or mw.method == "ALL" then
-            queue[#queue + 1] = mw
+            return true
         end
     end
     while i <= #parts do
         local part, matching = parts[i], function() i, matched = i + 1, true end
-        matched = false
+        matched, last = false, i == #parts
 
         -- mws collection
         for _, mw in ipairs(node.mws) do
-            addToQueue(mw)
+            if methodCheck(mw) then queue[#queue + 1] = mw end
         end
 
         -- if static else dynamic
@@ -118,17 +118,33 @@ local search = function(method, path)
             end
         end
 
-        if not matched then break end
+        -- check for trailing wildcard middleware
+        if not matched then
+            for _, mw in ipairs(node.mws) do
+                if methodCheck(mw) then
+                    local key = mw.possibleKeys[#mw.possibleKeys]
+                    if key == "*" then
+                        local remaining = table.concat(parts, "/", i)
+                        local p = { [key] = remaining }
+                        local sorted = sort({ mw }, function(a, b)
+                            if a.order > b.order then return 1 end
+                        end)
+                        return sorted, p
+                    end
+                end
+            end
+            break
+        end
     end
 
     -- leaf mws collection
     if matched and node.leaf then
         for _, mw in ipairs(node.leaf) do
-            addToQueue(mw)
+            if methodCheck(mw) then queue[#queue + 1] = mw end
         end
     end
 
-    -- path param assignment
+    -- path param assignment from dynamic nodes
     local p = {}
     for j, value in ipairs(values) do
         p[node.leaf[1].possibleKeys[j]] = value
@@ -180,7 +196,7 @@ Tx.describe("static", function()
 end)
 
 Tx.describe("methods", function()
-    Tx.it("should filter by method and return empty", function()
+    Tx.it("system should filter by method and return empty", function()
         insert("GET", "/hello", function() return "hello" end)
         local x, p = search("POST", "/hello")
         Tx.equal(x, {})
@@ -191,6 +207,25 @@ Tx.describe("methods", function()
         insert("PURGE", "/cache", function() return "purge cache" end)
         local x, p = search("PURGE", "/cache")
         Tx.equal(x[1].handlers[1](), "purge cache")
+    end)
+
+    Tx.it("wildcard should not match different method", function()
+        insert("POST", "/api/*", function() return "wild" end)
+        local x, p = search("GET", "/api/whatever")
+        Tx.equal(#x, 0)
+    end)
+
+    Tx.it("multiple wildcards with different methods should not interfere", function()
+        insert("POST", "/submit/*", function() return "post-wild" end)
+        insert("GET", "/submit/*", function() return "get-wild" end)
+
+        local x1, p1 = search("POST", "/submit/file.csv")
+        Tx.equal(x1[1].handlers[1](), "post-wild")
+        Tx.equal(p1["*"], "file.csv")
+
+        local x2, p2 = search("GET", "/submit/file.csv")
+        Tx.equal(x2[1].handlers[1](), "get-wild")
+        Tx.equal(p2["*"], "file.csv")
     end)
 end)
 
@@ -275,7 +310,6 @@ end)
 Tx.describe("wildcards", function()
     Tx.it("should find the middleware", function()
         insert("GET", "/path/*", function() return "wild" end)
-
         local x, p = search("GET", "/path/anything/here")
         Tx.equal(x[1].handlers[1](), "wild")
         Tx.equal(p["*"], "anything/here")
@@ -284,7 +318,6 @@ Tx.describe("wildcards", function()
     Tx.it("should not match empty wildcard segment", function()
         insert("GET", "/path/*", function() return "wild" end)
         local x, p = search("GET", "/path")
-
         Tx.equal(x, {})
         Tx.equal(p, {})
     end)
@@ -321,6 +354,13 @@ Tx.describe("priority", function()
         Tx.equal(x[1].handlers[1](), 2)
         Tx.equal(p["2"], "p2")
     end)
+
+    Tx.it("specific path should match before wildcard", function()
+        insert("GET", "/api/v1/users", function() return "specific" end)
+        insert("GET", "/api/*", function() return "wild" end)
+        local x, p = search("GET", "/api/v1/users")
+        Tx.equal(x[1].handlers[1](), "specific")
+    end)
 end)
 
 Tx.describe("chain", function()
@@ -328,6 +368,21 @@ Tx.describe("chain", function()
         local r = 0
         local fn = function() r = r + 1 end
         insert("GET", "/", fn, fn, fn)
+        local x = search("GET", "/")
+        for _, node in ipairs(x) do
+            for _, h in ipairs(node.handlers) do
+                h()
+            end
+        end
+        Tx.equal(r, 3)
+    end)
+
+    Tx.it("should add all routes node to same leaf", function()
+        local r = 0
+        local fn = function() r = r + 1 end
+        insert("GET", "/", fn)
+        insert("GET", "/", fn)
+        insert("GET", "/", fn)
         local x = search("GET", "/")
         for _, node in ipairs(x) do
             for _, h in ipairs(node.handlers) do
