@@ -84,22 +84,22 @@ local insert = function(method, path, ...)
 end
 
 local search = function(method, path)
-    local node, parts, values, i, matched, queue, last = trie, split(path), {}, 1, false, {}, false
+    local node, parts, values, i, matched, queue, keys = trie, split(path), {}, 1, false, {}, {}
+
     local methodCheck = function(mw)
-        if mw.method == "USE" or method == mw.method or mw.method == "ALL" then
-            return true
-        end
+        return mw.method == "USE" or method == mw.method or mw.method == "ALL"
     end
+
     while i <= #parts do
         local part, matching = parts[i], function() i, matched = i + 1, true end
-        matched, last = false, i == #parts
+        matched = false
 
         -- mws collection
         for _, mw in ipairs(node.mws) do
             if methodCheck(mw) then queue[#queue + 1] = mw end
         end
 
-        -- if static else dynamic
+        -- if static (O1) else dynamic (0n)
         if node.static[part] then
             node = node.static[part]
             matching()
@@ -107,9 +107,12 @@ local search = function(method, path)
             local remain = #parts - i
             local best = findBest(
                 node.dynamic,
-                function(nd) return not nd.pattern or part:match(nd.pattern) end,             -- pattern validation
-                function(nd) return remain >= (nd.score or 0) end,                            -- enough segments left to match its branch           --
-                function(nd, best) return not best or (nd.score or 0) > (best.score or 0) end -- longer branch = more specific = better
+                -- pattern validation
+                function(nd) return not nd.pattern or part:match(nd.pattern) end,
+                -- enough segments left to match its branch
+                function(nd) return remain >= (nd.score or 0) end,
+                -- longer branch = more specific = better
+                function(nd, best) return not best or (nd.score or 0) > (best.score or 0) end
             )
             if best then
                 values[#values + 1] = part
@@ -125,15 +128,12 @@ local search = function(method, path)
                     local key = mw.possibleKeys[#mw.possibleKeys]
                     if key == "*" then
                         local remaining = table.concat(parts, "/", i)
-                        local p = { [key] = remaining }
-                        local sorted = sort({ mw }, function(a, b)
-                            if a.order > b.order then return 1 end
-                        end)
-                        return sorted, p
+                        keys[#keys + 1] = key
+                        values[#values + 1] = remaining
+                        queue[#queue + 1] = mw
                     end
                 end
             end
-            break
         end
     end
 
@@ -146,8 +146,14 @@ local search = function(method, path)
 
     -- path param assignment from dynamic nodes
     local p = {}
+    if node.leaf then
+        for j, _ in ipairs(values) do
+            keys[#keys + 1] = node.leaf[1].possibleKeys[j]
+        end
+    end
+
     for j, value in ipairs(values) do
-        p[node.leaf[1].possibleKeys[j]] = value
+        p[keys[j]] = value
     end
 
     local sorted = sort(queue, function(a, b)
@@ -237,9 +243,6 @@ Tx.describe("params", function()
         Tx.equal(p["id"], "42")
     end)
 
-
-
-
     Tx.it("should match parameter at start of path", function()
         insert("GET", "/:lang/docs", function() return 1 end)
         local x, p = search("GET", "/en/docs")
@@ -247,13 +250,9 @@ Tx.describe("params", function()
         Tx.equal(p["lang"], "en")
     end)
 
-
-
-
     Tx.it("should match multiple parameters", function()
         insert("GET", "/:type/:id", function() return "ok" end)
         local x, p = search("GET", "/user/99")
-
         Tx.equal(x[1].handlers[1](), "ok")
         Tx.equal(p["type"], "user")
         Tx.equal(p["id"], "99")
@@ -360,6 +359,17 @@ Tx.describe("priority", function()
         insert("GET", "/api/*", function() return "wild" end)
         local x, p = search("GET", "/api/v1/users")
         Tx.equal(x[1].handlers[1](), "specific")
+    end)
+
+    Tx.it("should store * param and :type param", function()
+        insert("GET", "/api/:type", function() return "param" end)
+        insert("GET", "/api/:type/*", function() return "wild" end)
+        local x, p = search("GET", "/api/id/123")
+        local x2, p2 = search("GET", "/api/id")
+        Tx.equal(x[1].handlers[1](), "wild")
+        Tx.equal(x2[1].handlers[1](), "param")
+        Tx.equal(p["type"], "id")
+        Tx.equal(p["*"], "123")
     end)
 end)
 
