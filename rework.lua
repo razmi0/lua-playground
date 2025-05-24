@@ -84,7 +84,7 @@ local insert = function(method, path, ...)
 end
 
 local search = function(method, path)
-    local node, parts, values, i, matched, queue, keys = trie, split(path), {}, 1, false, {}, {}
+    local node, parts, values, i, matched, queue = trie, split(path), {}, 1, false, {}
 
     local methodCheck = function(mw)
         return mw.method == "USE" or method == mw.method or mw.method == "ALL"
@@ -128,42 +128,50 @@ local search = function(method, path)
                     local key = mw.possibleKeys[#mw.possibleKeys]
                     if key == "*" then
                         local remaining = table.concat(parts, "/", i)
-                        keys[#keys + 1] = key
-                        values[#values + 1] = remaining
+                        local params = {}
+                        for j, k in ipairs(mw.possibleKeys) do
+                            if k == "*" then
+                                params[k] = remaining
+                            else
+                                params[k] = values[j]
+                            end
+                        end
+                        mw.params = params
                         queue[#queue + 1] = mw
+                        break
                     end
                 end
             end
         end
+        if not matched then break end
     end
 
     -- leaf mws collection
     if matched and node.leaf then
         for _, mw in ipairs(node.leaf) do
-            if methodCheck(mw) then queue[#queue + 1] = mw end
+            if methodCheck(mw) then
+                local params = {}
+                for j, key in ipairs(mw.possibleKeys) do
+                    params[key] = values[j]
+                end
+                mw.params = params
+                queue[#queue + 1] = mw
+            end
         end
     end
 
-    -- path param assignment from dynamic nodes
-    local p = {}
-    if node.leaf then
-        for j, _ in ipairs(values) do
-            keys[#keys + 1] = node.leaf[1].possibleKeys[j]
-        end
-    end
-
-    for j, value in ipairs(values) do
-        p[keys[j]] = value
-    end
-
+    -- sort by order
     local sorted = sort(queue, function(a, b)
-        if a.order > b.order then return 1 end
+        return a.order > b.order
     end)
+
+    -- return first match's params or empty
+    local p = sorted[1] and sorted[1].params or {}
 
     return sorted, p
 end
 
-Tx.mute = true
+Tx.mute = false
 
 Tx.beforeEach = function()
     trie  = newNode()
@@ -364,10 +372,12 @@ Tx.describe("priority", function()
     Tx.it("should store * param and :type param", function()
         insert("GET", "/api/:type", function() return "param" end)
         insert("GET", "/api/:type/*", function() return "wild" end)
-        local x, p = search("GET", "/api/id/123")
         local x2, p2 = search("GET", "/api/id")
-        Tx.equal(x[1].handlers[1](), "wild")
         Tx.equal(x2[1].handlers[1](), "param")
+        Tx.equal(p2["type"], "id")
+
+        local x, p = search("GET", "/api/id/123")
+        Tx.equal(x[1].handlers[1](), "wild")
         Tx.equal(p["type"], "id")
         Tx.equal(p["*"], "123")
     end)
