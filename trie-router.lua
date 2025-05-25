@@ -29,10 +29,10 @@ local expand = require("utils.expand-optional")
 local sort   = require("utils.sort")
 local clone  = require("utils.clone")
 
----@generic T
----@param nodes T[]
----@param ... fun(node: T, best: T?): boolean
----@return T.node?
+
+---@param nodes TrieDynamicNode[]
+---@param ... fun(node: TrieDynamicNode, best: TrieDynamicNode?): boolean
+---@return TrieNode
 local function findBest(nodes, ...)
     local validators = { ... }
     local best
