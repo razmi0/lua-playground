@@ -1,85 +1,103 @@
--- Trie-based router for HTTP-like routes supporting static, dynamic, wildcard segments,
--- optional segments expansion, Lua pattern validation, and middleware attachment.
--- @module router
-
----@alias StdMethod  "GET"|"POST"|"PUT"|"PATCH"|"HEAD"|"OPTIONS"|"USE"|"ALL"
----@alias Method StdMethod|string
----@alias Path string
----@alias Handler fun(...):any
----@alias Middleware fun(...):any
----@alias MatchResult Handler[]|Middleware[]
-
----Router Trie class
 ---@class Trie
----@field root table internal trie root node
-local Trie                             = {}
-Trie.__index                           = Trie
-Trie.__name                            = "Trie"
-local parse                            = require("utils.parse-path")
-local split                            = require("utils.split-path")
-local plainCopy                        = require("utils.plain-copy")
-local prune                            = require("utils.prune")
-local isCompatible                     = require("utils.compare-middleware")
-local expand                           = require("utils.expand-optional")
-local findBest                         = require("utils.specificity")
-local MW_METHOD                        = "USE"
-local MESSAGE_MATCHER_IS_ALREADY_BUILT = "Can not add a route since the matcher is already built"
-local order                            = 0
-local mws                              = {}
-local hds                              = {}
-local isMwPopulated                    = false
+---@field private root table
+---@field order integer
+---@field new fun(): Trie
+---@field insert fun(self: Trie, method: HTTPMethod, path: string, ...: fun(...: any): any)
+---@field search fun(self: Trie, method: HTTPMethod, path: string): TrieLeaf[], table<string, string>
+
+---@class TrieNode
+---@field mws TrieLeaf[]
+---@field static table<string, TrieNode>
+---@field dynamic TrieDynamicNode[]
+---@field leaf? TrieLeaf[]
+
+---@class TrieDynamicNode
+---@field node TrieNode
+---@field pattern? string
+---@field score? integer
+
+---@class TrieLeaf
+---@field handlers fun()[]
+---@field method HTTPMethod
+---@field order integer
+---@field possibleKeys string[]
+---@field params table<string, string>?
+
+local parse  = require("utils.parse-path")
+local split  = require("utils.split-path")
+local expand = require("utils.expand-optional")
+local sort   = require("utils.sort")
+local clone  = require("utils.clone")
+
+---@generic T
+---@param nodes T[]
+---@param ... fun(node: T, best: T?): boolean
+---@return T.node?
+local function findBest(nodes, ...)
+    local validators = { ... }
+    local best
+    for _, d in ipairs(nodes or {}) do
+        local valid = true
+        for _, fn in ipairs(validators) do
+            if not fn(d, best) then
+                valid = false
+                break
+            end
+        end
+        if valid then
+            best = d
+        end
+    end
+    return best and best.node
+end
+
+---@return TrieNode
 local function newNode()
-    return { static = {}, dynamic = {}, wildcard = nil, handlers = {} }
-end
-local function nextOrder()
-    order = order + 1
-    return order
+    return {
+        mws = {},
+        static = {},
+        dynamic = {}
+    }
 end
 
----Creates a new Trie router instance.
----@return Trie self
+---@param self Trie
+---@return integer
+local function nextOrder(self)
+    self.order = self.order + 1
+    return self.order
+end
+
+local Trie = {}
+Trie.__index = Trie
+
+---@return TrieNode
 function Trie.new()
-    order, mws, hds, isMwPopulated = 0, {}, {}, false
-    return setmetatable({ root = newNode() }, Trie)
+    return setmetatable({
+        root = newNode(),
+        order = 0
+    }, Trie)
 end
 
----Inserts a route handler or middleware into the trie.
----@param method Method HTTP or middleware method identifier
----@param path Path route pattern (supports optional `?`, wildcards `*`, dynamic `:param`)
----@param ... Handler|Middleware functions
----@return Trie self
+---@param method HTTPMethod
+---@param path string
+---@param ... fun(...: any): any
 function Trie:insert(method, path, ...)
-    if isMwPopulated then
-        error(MESSAGE_MATCHER_IS_ALREADY_BUILT)
-        return self
-    end
-
     local fns = { ... }
-    if method == MW_METHOD then
-        local score = nextOrder()
-        mws[order] = {
-            path = path,
-            middlewares = { ... },
-            method = MW_METHOD,
-            score = score
-        }
-        return self
-    end
     local variants = {}
     expand(split(path), 1, {}, variants, false)
+
     for _, parts in ipairs(variants) do
         local node, keys = self.root, {}
         for i, part in ipairs(parts) do
+            local isLast = i == #parts
             local seg, typ, data, label = parse(part)
 
-            -- 1) static
             if typ == "static" then
                 node.static[seg] = node.static[seg] or newNode()
                 node = node.static[seg]
             end
 
-            -- 2) dynamic
-            if typ == "dynamic" then
+            if typ == "dynamic" or (typ == "wildcard" and not isLast) then
                 local child = newNode()
                 node.dynamic[#node.dynamic + 1] = {
                     node = child,
@@ -87,132 +105,118 @@ function Trie:insert(method, path, ...)
                     score = #parts - i
                 }
                 node = child
-                keys[#keys + 1] = label
+                keys[#keys + 1] = (label or "*")
             end
 
-            -- 3) wildcard
-            if typ == "wildcard" then
-                local child = newNode()
-                node.wildcard = { node = child, name = label }
-                node = child
-                keys[#keys + 1] = label
-            end
-        end
-
-        local rec = node[method]
-        if not rec then
-            local s = nextOrder()
-            rec = {
-                handlers = fns,
-                order = s,
-                possibleKeys = keys,
-                path = table.concat(parts, "/"),
-                method = method
-            }
-            node[method] = rec
-            hds[s] = rec
-            if parts[#parts] == "*" then
-                mws[s] = { path = path, middlewares = fns, method = method, order = s } -- add to mw candidate
-            end
-        else
-            for _, fn in ipairs(fns) do
-                rec.handlers[#rec.handlers + 1] = fn
+            if typ == "wildcard" and isLast then
+                keys[#keys + 1] = (label or "*")
+                node.mws[#node.mws + 1] = {
+                    handlers = clone(fns),
+                    order = nextOrder(self),
+                    method = method,
+                    possibleKeys = keys
+                }
+                return
             end
         end
-    end
 
-    return self
-end
-
-function Trie:clean()
-    prune(self.root)
-    mws, hds = nil, nil
-    isMwPopulated = true
-end
-
-function Trie:attachMiddlewares()
-    -- prevent mw insertion duplication
-    for _, mwNode in pairs(mws) do mwNode.middlewares = plainCopy(mwNode.middlewares) end
-    for i, mw in pairs(mws) do
-        while true do
-            i = i + 1
-            local hd, nextMw = hds[i], mws[i]
-            if not hd and not nextMw then break end
-            -- ordered handlers and ordered mw make a linear (1,2, n .. n + 1) together
-            -- if no handler AND no mw stored => gap in the linear sequence => all exploration of callbacks done
-            if hd and isCompatible(mw, hd) then
-                local list, handlers = mw.middlewares, hd.handlers
-                local last = handlers[#handlers]
-                handlers[#handlers] = nil -- remove last
-                for _, m in ipairs(list) do handlers[#handlers + 1] = m end
-                handlers[#handlers + 1] = last
-            end
-        end
+        local rec = node.leaf or {}
+        rec[#rec + 1] = {
+            handlers = clone(fns),
+            order = nextOrder(self),
+            method = method,
+            possibleKeys = keys
+        }
+        node.leaf = rec
     end
 end
 
----Searches for handlers matching a given method and path.
----@param method Method HTTP method to match
----@param path Path to search
----@return MatchResult?, table?, boolean? list of handlers and extracted params or nil
+---@param method HTTPMethod
+---@param path string
+---@return TrieLeaf[] results,  table<string, string>| {} params
 function Trie:search(method, path)
-    if not isMwPopulated then
-        self:attachMiddlewares() -- one shot last compilation step
-        self:clean()             -- one shot optional cleanup
+    local node, parts, values, i, matched, queue = self.root, split(path), {}, 1, false, {}
+
+    local methodCheck = function(mw)
+        return mw.method == "USE" or method == mw.method or mw.method == "ALL"
     end
 
-    local node, parts, values, i, matched = self.root, split(path), {}, 1, false
     while i <= #parts do
-        local part = parts[i]
+        local part, matching = parts[i], function() i, matched = i + 1, true end
         matched = false
-        local function nextStep() i, matched = i + 1, true end
 
-        -- 1) static
-        if node.static and node.static[part] then
-            node = node.static[part]
-            nextStep()
+        -- mws collection
+        for _, mw in ipairs(node.mws) do
+            if methodCheck(mw) then queue[#queue + 1] = mw end
         end
 
-        -- 2) dynamic
-        if not matched then
+        -- if static (O1) else dynamic (0n)
+        if node.static[part] then
+            node = node.static[part]
+            matching()
+        else
             local remain = #parts - i
-            local best = findBest(node.dynamic, part, remain)
+            local best = findBest(
+                node.dynamic,
+                -- pattern validation
+                function(nd) return not nd.pattern or part:match(nd.pattern) end,
+                -- enough segments left to match its branch
+                function(nd) return remain >= (nd.score or 0) end,
+                -- longer branch = more specific = better
+                function(nd, best) return not best or (nd.score or 0) > (best.score or 0) end
+            )
             if best then
                 values[#values + 1] = part
                 node = best
-                nextStep()
+                matching()
             end
         end
 
-        -- 3) wildcard
+        -- check for trailing wildcard middleware
         if not matched then
-            if node.wildcard then
-                values[#values + 1] = table.concat(parts, "/", i, #parts)
-                node = node.wildcard.node
-                break
+            for _, mw in ipairs(node.mws) do
+                if methodCheck(mw) then
+                    local key = mw.possibleKeys[#mw.possibleKeys]
+                    if key == "*" then
+                        local remaining = table.concat(parts, "/", i)
+                        local params = {}
+                        for j, k in ipairs(mw.possibleKeys) do
+                            if k == "*" then
+                                params[k] = remaining
+                            else
+                                params[k] = values[j]
+                            end
+                        end
+                        mw.params = params
+                        queue[#queue + 1] = mw
+                        break
+                    end
+                end
             end
         end
-
-        if not matched then return end
+        if not matched then break end
     end
 
-    -- end of path:
-    local rec = node[method]
-    if not rec then return nil, nil, matched end
-
-    -- build params map from the ordered keys
-    local params = {}
-    for j, key in ipairs(rec.possibleKeys or {}) do
-        params[key] = values[j]
+    -- leaf mws collection
+    if matched and node.leaf then
+        for _, mw in ipairs(node.leaf) do
+            if methodCheck(mw) then
+                local params = {}
+                for j, key in ipairs(mw.possibleKeys) do
+                    params[key] = values[j]
+                end
+                mw.params = params
+                queue[#queue + 1] = mw
+            end
+        end
     end
 
-    return rec.handlers, params, matched
-end
+    -- sort by order
+    local sorted = sort(queue, function(a, b)
+        return a.order > b.order
+    end)
 
--- debugging purpose
----@private
-function Trie:__call()
-    return self.root
+    return sorted, sorted[#sorted] and sorted[#sorted].params or {}
 end
 
 return Trie

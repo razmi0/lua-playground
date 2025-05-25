@@ -73,18 +73,28 @@ local function addName(_name)
     queue.name = _name
 end
 
-local function printResults()
+local function printResults(mute)
     local successes = queue.testCount - queue.failCount
-    print("[Tx] " .. queue.name)
-    print(lgrey(tostring(successes .. "/" .. queue.testCount)) .. " " .. queue.output.pluses)
-    if queue.output.rules ~= "" then
-        print(queue.output.rules)
+    local output = function()
+        print("[Tx] " .. queue.name)
+        print(lgrey(tostring(successes .. "/" .. queue.testCount)) .. " " .. queue.output.pluses)
+        if queue.output.rules ~= "" then
+            print(queue.output.rules)
+        end
     end
+    if mute then
+        if queue.failCount > 0 then
+            output()
+        end
+        return
+    end
+    output()
 end
 
 -- Lib
 
-function Tx.describe(xname, fn)
+function Tx.describe(xname, fn, mute)
+    mute = mute or Tx.mute or false
     queue = {
         name      = "",
         output    = {
@@ -96,13 +106,13 @@ function Tx.describe(xname, fn)
     }
     addName(xname)
     fn()
-    printResults()
+    printResults(mute)
     return queue
 end
 
 function Tx.it(msg, func)
     if Tx.beforeEach then
-        Tx.afterEach()
+        Tx.beforeEach()
     end
     addCount()
     local success, internal_err_msg = pcall(func)
