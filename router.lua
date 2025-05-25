@@ -1,4 +1,5 @@
-local inspect  = require("inspect")
+---@alias HTTPMethod string|"USE"|"ALL"
+
 ---@class Router
 ---@field trie Trie internal trie router
 local Router   = {}
@@ -13,17 +14,17 @@ function Router.new()
 end
 
 -- Add a route to trie router
----@param method Method
----@param path Path route pattern
----@param ... Handler|Middleware functions
+---@param method HTTPMethod
+---@param path string
+---@param ... fun(...: any): any
 function Router:add(method, path, ...)
     self.trie:insert(method, path, ...)
 end
 
 ---Find a route in the trie router
----@param method Method HTTP method to match
----@param path Path to search
----@return MatchResult?, table? list of handlers and extracted params or nil
+---@param method HTTPMethod
+---@param path string
+---@return TrieLeaf[] matches,  table<string, string>| {} params
 function Router:match(method, path)
     return self.trie:search(method, path)
 end
